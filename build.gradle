@@ -1,0 +1,39 @@
+plugins {
+    // 1. Upgrade to Spring Boot 3 (Requires Java 17+)
+    id 'org.springframework.boot' version '3.2.5'
+    // 2. Upgrade Dependency Management
+    id 'io.spring.dependency-management' version '1.1.4'
+    id 'java'
+}
+
+group = 'com.example.arena'
+version = '0.0.1-SNAPSHOT'
+
+// 3. Set Java version to 21 (Matches your installed JDK)
+java {
+    sourceCompatibility = '21'
+}
+
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter'
+    compileOnly 'org.projectlombok:lombok'
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+    annotationProcessor 'org.projectlombok:lombok'
+
+    // 4. Simplified Test dependencies (Spring Boot 3 uses JUnit 5 by default)
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}

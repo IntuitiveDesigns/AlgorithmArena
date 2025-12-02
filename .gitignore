@@ -1,0 +1,23 @@
+# IntelliJ Project Files
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Gradle Build Artifacts (Generated code/jars)
+build/
+.gradle/
+
+# Eclipse Artifacts (Just in case they regenerate)
+.classpath
+.project
+.settings/
+bin/
+
+# OS Junk
+.DS_Store
+Thumbs.db
+
+# DBeaver (Database tool config - optional, usually good to ignore)
+.dbeaver/
