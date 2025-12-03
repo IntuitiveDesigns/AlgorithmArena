@@ -44,4 +44,4 @@ Legacy patterns have been refactored into modern standards:
 ## ⚡ How to Run
 1. **Clone the repo:**
    ```bash
-   git clone [https://github.com/YOUR_USERNAME/AlgorithmArena.git](https://github.com/YOUR_USERNAME/AlgorithmArena.git)
+   git clone [https://github.com/IntuitiveDesigns/AlgorithmArena]
