@@ -3,6 +3,9 @@ package com.example.arena.kafka.core;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 public class PipelineOrchestrator<I, O> {
 
     private static final Logger log = LoggerFactory.getLogger(PipelineOrchestrator.class);
@@ -14,7 +17,7 @@ public class PipelineOrchestrator<I, O> {
     private final CacheStrategy<I> cache;
 
     private volatile boolean running = true;
-    private Thread workerThread;
+    private Thread dispatcherThread;
 
     public PipelineOrchestrator(SourceConnector<I> source,
                                 OutputSink<O> primarySink,
@@ -29,52 +32,61 @@ public class PipelineOrchestrator<I, O> {
     }
 
     public void start() {
-        source.connect(); // 1. Connect
-        log.info("Starting Pipeline Orchestrator...");
-        workerThread = new Thread(this::run, "pipeline-worker");
-        workerThread.start();
+        source.connect();
+        log.info("Starting Parallel Pipeline (Virtual Threads)...");
+        // Run the "Fetch Loop" on a standard OS thread
+        dispatcherThread = new Thread(this::run, "pipeline-dispatcher");
+        dispatcherThread.start();
     }
 
     public void stop() {
-        log.info("Stopping Pipeline Orchestrator...");
+        log.info("Stopping Pipeline...");
         running = false;
         try {
-            if (workerThread != null) workerThread.join(5000);
+            if (dispatcherThread != null) dispatcherThread.join(5000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } finally {
-            source.disconnect(); // 2. Disconnect
+            source.disconnect();
         }
     }
 
     private void run() {
-        while (running) {
-            // FIX: Use .fetch() instead of .read()
-            PipelinePayload<I> inputPayload = source.fetch();
+        // JAVA 21 FEATURE: Virtual Threads
+        // Creates a new lightweight thread for every single task submitted.
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
 
-            if (inputPayload == null) {
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
+            while (running) {
+                // 1. FETCH (Synchronous)
+                // We read one-by-one to control memory pressure
+                PipelinePayload<I> inputPayload = source.fetch();
+
+                if (inputPayload == null) {
+                    try { Thread.sleep(10); } catch (InterruptedException e) { break; }
+                    continue;
                 }
-                continue;
+
+                // 2. DISPATCH (Asynchronous)
+                // We hand off processing immediately and go back to fetch the next item.
+                executor.submit(() -> processEvent(inputPayload));
             }
+        } // Executor waits for all threads to complete before closing
+    }
 
+    private void processEvent(PipelinePayload<I> inputPayload) {
+        try {
+            // A. Transform
+            PipelinePayload<O> resultPayload = transformer.transform(inputPayload);
+
+            // B. Sink (Must be thread-safe, KafkaProducer is)
+            primarySink.write(resultPayload);
+
+        } catch (Exception e) {
+            log.error("❌ Failed ID: {}", inputPayload.id(), e);
             try {
-                // FIX: Pass Payload wrapper, not raw data
-                PipelinePayload<O> resultPayload = transformer.transform(inputPayload);
-                primarySink.write(resultPayload);
-
-            } catch (Exception e) {
-                log.error("❌ Processing Failed! ID: {}", inputPayload.id(), e);
-                try {
-                    // FIX: Write Payload to DLQ
-                    dlqSink.write(inputPayload);
-                } catch (Exception dlqError) {
-                    log.error("💀 CRITICAL: DLQ Write Failed!", dlqError);
-                }
+                dlqSink.write(inputPayload);
+            } catch (Exception dlqError) {
+                log.error("💀 DLQ Failed", dlqError);
             }
         }
     }

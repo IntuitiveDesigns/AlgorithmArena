@@ -36,11 +36,13 @@ public class KafkaApp {
         };
 
         // These can stay as Lambdas because OutputSink/Transformer only have 1 method
-        OutputSink<String> primarySink = payload ->
-                log.info("✅ [SINK] Persisted: {} (ID: {})", payload.data(), payload.id());
+        OutputSink<String> primarySink = payload -> {
+            // log.info("✅ [SINK] Persisted: {} (ID: {})", payload.data(), payload.id());
+        };
 
-        OutputSink<String> dlqSink = payload ->
-                log.warn("⚠️ [DLQ] Saved Bad Event: {} (ID: {})", payload.data(), payload.id());
+        OutputSink<String> dlqSink = payload -> {
+            // log.warn("⚠️ [DLQ] Saved Bad Event: {} (ID: {})", payload.data(), payload.id());
+        };
 
         Transformer<String, String> businessLogic = input -> {
             if (input.data().contains("a")) {

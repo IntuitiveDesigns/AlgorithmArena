@@ -3,6 +3,7 @@ package com.example.arena.kafka.config;
 import com.example.arena.kafka.cache.LocalCacheStrategy;
 import com.example.arena.kafka.cache.RedisCacheStrategy;
 import com.example.arena.kafka.core.*;
+import com.example.arena.kafka.ingestion.KafkaSourceConnector;
 import com.example.arena.kafka.ingestion.RestSourceConnector;
 import com.example.arena.kafka.output.KafkaSink;
 
@@ -16,6 +17,11 @@ public class PipelineFactory {
 
         return switch (type) {
             case "REST" -> new RestSourceConnector();
+            case "KAFKA" -> {
+                String topic = config.getProperty("source.topic", "arena-default");
+                Properties props = loadConsumerProps(config);
+                yield new KafkaSourceConnector(topic, props);
+            }
             default -> throw new IllegalArgumentException("Unknown Source: " + type);
         };
     }
@@ -26,14 +32,7 @@ public class PipelineFactory {
         return switch (type) {
             case "KAFKA" -> {
                 String topic = config.getProperty("sink.topic", "arena-default");
-
-                // Build Properties object to match new KafkaSink constructor
-                Properties props = new Properties();
-                props.put("bootstrap.servers", config.getProperty("kafka.broker", "localhost:9092"));
-                props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
-                props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
-                props.put("acks", "all");
-
+                Properties props = loadProducerProps(config);
                 yield new KafkaSink(topic, props);
             }
             case "CONSOLE" -> payload ->
@@ -55,18 +54,34 @@ public class PipelineFactory {
             case "LOCAL" -> new LocalCacheStrategy<>();
             case "REDIS" -> new RedisCacheStrategy<>();
             default -> new CacheStrategy<>() {
-                // FIXED: Must match interface signature exactly (PipelinePayload, Optional, Remove)
                 @Override
-                public void put(String key, PipelinePayload<String> value) { /* no-op */ }
-
+                public void put(String key, PipelinePayload<String> value) {}
                 @Override
-                public Optional<PipelinePayload<String>> get(String key) {
-                    return Optional.empty();
-                }
-
+                public Optional<PipelinePayload<String>> get(String key) { return Optional.empty(); }
                 @Override
-                public void remove(String key) { /* no-op */ }
+                public void remove(String key) {}
             };
         };
+    }
+
+    // --- HELPER METHODS TO LOAD PROPS ---
+
+    private static Properties loadProducerProps(PipelineConfig config) {
+        Properties props = new Properties();
+        props.put("bootstrap.servers", config.getProperty("kafka.broker", "localhost:9092"));
+        props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+        props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+        props.put("acks", "all");
+        return props;
+    }
+
+    private static Properties loadConsumerProps(PipelineConfig config) {
+        Properties props = new Properties();
+        props.put("bootstrap.servers", config.getProperty("kafka.broker", "localhost:9092"));
+        props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+        props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+        props.put("group.id", config.getProperty("kafka.group.id", "arena-consumer-group"));
+        props.put("auto.offset.reset", "earliest");
+        return props;
     }
 }

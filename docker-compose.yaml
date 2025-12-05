@@ -1,10 +1,6 @@
 version: '3.8'
 
 services:
-  # -----------------------------------------------------------------------
-  # ZOOKEEPER
-  # Required for Kafka coordination. Lightweight and standard.
-  # -----------------------------------------------------------------------
   zookeeper:
     image: confluentinc/cp-zookeeper:latest
     container_name: arena-zookeeper
@@ -14,51 +10,34 @@ services:
     ports:
       - "2181:2181"
 
-  # -----------------------------------------------------------------------
-  # BROKER (Your NVMe-Backed Engine)
-  # -----------------------------------------------------------------------
   broker:
     image: confluentinc/cp-kafka:latest
     container_name: arena-broker
     depends_on:
       - zookeeper
     ports:
-      - "9092:9092" # External access (host machine)
+      - "9092:9092"
     volumes:
-      # 1. DATA PERSISTENCE (Crucial)
-      # Maps your local NVMe folder to the container's data directory.
       - ./data/kafka-data:/var/lib/kafka/data
     environment:
-      # --- NETWORKING ---
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      # Listeners: Internal (Docker network) & External (Host machine)
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
 
-      # --- PERFORMANCE TUNING (From your server.properties) ---
-      # Maximize thread usage for your NVMe drives
+      # --- SCALING CONFIG ---
       KAFKA_NUM_NETWORK_THREADS: 12
       KAFKA_NUM_IO_THREADS: 8
-      
-      # Large log segments (1GB) for sequential I/O speed
       KAFKA_LOG_SEGMENT_BYTES: 1073741824
-
-      # --- STORAGE & RETENTION (No S3) ---
-      # Retention: Infinite Time (-1), Limited by Size (500GB)
       KAFKA_LOG_RETENTION_HOURS: -1
       KAFKA_LOG_RETENTION_BYTES: 536870912000
-      
-      # --- SOCKET BUFFERS (For High Throughput Replay) ---
-      KAFKA_SOCKET_SEND_BUFFER_BYTES: 1048576
-      KAFKA_SOCKET_RECEIVE_BUFFER_BYTES: 1048576
-      
-      # --- REPLICATION (Single Node Safety) ---
-      # Since you only have 1 broker, we must set these to 1 to prevent errors
+
+      # NEW: Create 10 partitions by default so we can run up to 10 consumers
+      KAFKA_NUM_PARTITIONS: 10
+
+      # Single Node Configs
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      
-      # --- REPLICA FETCHERS (Speed) ---
       KAFKA_NUM_REPLICA_FETCHERS: 4
