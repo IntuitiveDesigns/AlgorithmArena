@@ -1,7 +1,5 @@
 plugins {
-    // 1. Upgrade to Spring Boot 3 (Requires Java 17+)
     id 'org.springframework.boot' version '3.2.5'
-    // 2. Upgrade Dependency Management
     id 'io.spring.dependency-management' version '1.1.4'
     id 'java'
 }
@@ -9,9 +7,14 @@ plugins {
 group = 'com.example.arena'
 version = '0.0.1-SNAPSHOT'
 
-// 3. Set Java version to 21 (Matches your installed JDK)
 java {
     sourceCompatibility = '21'
+
+    // Feature: Gradle Toolchain
+    // This forces Gradle to use a real JDK 21, even if your CLI is on Java 17.
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
 }
 
 configurations {
@@ -25,15 +28,30 @@ repositories {
 }
 
 dependencies {
+    // 1. Core Framework
     implementation 'org.springframework.boot:spring-boot-starter'
-    compileOnly 'org.projectlombok:lombok'
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
+
+    // 2. Kafka Client
+    implementation 'org.apache.kafka:kafka-clients:3.7.0'
+
+    // 3. Logging & Metrics
+    implementation 'ch.qos.logback:logback-classic'
+    implementation 'io.micrometer:micrometer-core'
+    // ^^^ SimpleMeterRegistry is INSIDE this jar. No extra dependency needed.
+
+    // 4. Lombok
+    compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 
-    // 4. Simplified Test dependencies (Spring Boot 3 uses JUnit 5 by default)
+    // 5. Testing
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+springBoot {
+    mainClass = 'com.example.arena.kafka.KafkaApp'
 }

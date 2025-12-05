@@ -2,6 +2,7 @@ package com.example.arena.strings;
 
 
 public class Strings {
+
 	public static void main(String[] args) {
 //		FindInRepeatedString findInRepeatedString = new FindInRepeatedString();
 //		findInRepeatedString.runTests();

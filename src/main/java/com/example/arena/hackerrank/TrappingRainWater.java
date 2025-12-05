@@ -7,7 +7,6 @@ public class TrappingRainWater {
      * Given n non-negative integers representing an elevation map where the width of each bar is 1,
      * compute how much water it can trap after raining.
      *
-     * PRINCIPAL LEVEL ANALYSIS:
      * - Brute Force: Check every bar, look left/right for max heights. Time: O(N^2). Space: O(1).
      * - Dynamic Prog: Pre-compute LeftMax[] and RightMax[] arrays. Time: O(N). Space: O(N).
      * - Two Pointers: Move inward, tracking max height. Time: O(N). Space: O(1).
