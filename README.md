@@ -139,6 +139,7 @@ docker-compose up -d
 ## 2. Start the Pipeline
 ```
 ./gradlew bootRun
+java -Xms4g -Xmx4g -jar .\build\libs\AlgorithmArena-0.0.1-SNAPSHOT.jar
 ```
 
 ## 3. Generate Load (Producer)
