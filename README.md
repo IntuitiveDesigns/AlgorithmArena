@@ -136,13 +136,18 @@ Grafana updates instantly with EPS, latency, and performance curves.
 docker-compose up -d
 ```
 
-## 2. Start the Pipeline
+## 2. Create Topic
+```
+docker exec arena-broker kafka-topics --bootstrap-server localhost:9092 --create --topic raw-customer-events --partitions 10 --replication-factor 1
+```
+
+## 3. Start the Pipeline
 ```
 ./gradlew bootRun
 java -Xms4g -Xmx4g -jar .\build\libs\AlgorithmArena-0.0.1-SNAPSHOT.jar
 ```
 
-## 3. Generate Load (Producer)
+## 4. Generate Load (Producer)
 ```
 com.example.arena.kafka.ArenaProducer.main()
 ```
