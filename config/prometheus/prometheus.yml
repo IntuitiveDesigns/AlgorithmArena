@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 1s # Scrape frequently for high-speed updates
+
+scrape_configs:
+  - job_name: 'algorithm-arena-pipeline'
+    metrics_path: '/metrics'
+    static_configs:
+      # 'host.docker.internal' allows Docker to see your Windows/Mac host
+      - targets: ['host.docker.internal:8080']

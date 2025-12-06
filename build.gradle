@@ -46,6 +46,9 @@ dependencies {
 
     // 5. Testing
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+
+    // 6. Visual Observability
+    implementation 'io.micrometer:micrometer-registry-prometheus'
 }
 
 tasks.named('test') {

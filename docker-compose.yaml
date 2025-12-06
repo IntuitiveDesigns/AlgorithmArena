@@ -1,43 +1,78 @@
 version: '3.8'
 
 services:
-  zookeeper:
-    image: confluentinc/cp-zookeeper:latest
-    container_name: arena-zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
-
+  # -----------------------------------------------------------------------
+  # KAFKA BROKER (KRaft Mode - No Zookeeper)
+  # -----------------------------------------------------------------------
   broker:
-    image: confluentinc/cp-kafka:latest
+    image: confluentinc/cp-kafka:7.6.1
     container_name: arena-broker
-    depends_on:
-      - zookeeper
+    hostname: broker
     ports:
       - "9092:9092"
     volumes:
       - ./data/kafka-data:/var/lib/kafka/data
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      # --- KRAFT SETTINGS ---
+      # Unique ID for this node
+      KAFKA_NODE_ID: 1
+      # This node acts as both a broker and a controller
+      KAFKA_PROCESS_ROLES: broker,controller
+      # The voting quorum (just this node for single-node setup)
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@broker:29093'
+
+      # --- LISTENERS ---
+      # PLAINTEXT: Internal communication between containers
+      # CONTROLLER: Internal metadata communication
+      # PLAINTEXT_HOST: External access for your Java App (localhost:9092)
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
 
-      # --- SCALING CONFIG ---
-      KAFKA_NUM_NETWORK_THREADS: 12
+      # Required static Cluster ID for KRaft (Base64 UUID)
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+
+      # --- PERFORMANCE TUNING (NVMe Optimized) ---
+      KAFKA_NUM_NETWORK_THREADS: 8
       KAFKA_NUM_IO_THREADS: 8
       KAFKA_LOG_SEGMENT_BYTES: 1073741824
       KAFKA_LOG_RETENTION_HOURS: -1
       KAFKA_LOG_RETENTION_BYTES: 536870912000
 
-      # NEW: Create 10 partitions by default so we can run up to 10 consumers
+      # --- SCALING ---
+      # Create 10 partitions by default for high concurrency
       KAFKA_NUM_PARTITIONS: 10
 
-      # Single Node Configs
+      # Single Node Safety Settings
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_NUM_REPLICA_FETCHERS: 4
+
+  # -----------------------------------------------------------------------
+  # OBSERVABILITY STACK
+  # -----------------------------------------------------------------------
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: arena-prometheus
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      # Allows container to scrape http://localhost:8080/metrics
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: arena-grafana
+    depends_on:
+      - prometheus
+    ports:
+      # Port 3001 to avoid conflicts with local dev tools
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
