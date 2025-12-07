@@ -16,6 +16,12 @@ public class MonitoredTransformer<I, O> implements Transformer<I, O> {
     @Override
     public PipelinePayload<O> transform(PipelinePayload<I> input) {
         // Wrap the execution in a timer
-        return timer.record(() -> delegate.transform(input));
+        return timer.record(() -> {
+            try {
+                return delegate.transform(input);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
     }
 }

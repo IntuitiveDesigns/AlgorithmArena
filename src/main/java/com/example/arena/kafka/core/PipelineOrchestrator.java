@@ -6,8 +6,17 @@ import org.slf4j.LoggerFactory;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.atomic.LongAdder;
 
+/**
+ * Orchestrates the flow:
+ *
+ *  SourceConnector -> Transformer -> OutputSink (-> DLQ on failure)
+ *
+ * Uses Java 21 Virtual Threads for high-concurrency, low-overhead processing.
+ *
+ * @param <I> Input data type from the Source
+ * @param <O> Output data type sent to the primary Sink
+ */
 public class PipelineOrchestrator<I, O> {
 
     private static final Logger log = LoggerFactory.getLogger(PipelineOrchestrator.class);
@@ -18,31 +27,15 @@ public class PipelineOrchestrator<I, O> {
     private final Transformer<I, O> transformer;
     private final CacheStrategy<I> cache;
 
+    /**
+     * Maximum number of in-flight tasks allowed at once.
+     * This provides simple backpressure and protects the JVM.
+     */
     private final int maxInFlight;
-    private final Semaphore inFlight;
 
-    private volatile boolean running = true;
+    private volatile boolean running = false;
     private Thread dispatcherThread;
 
-    /**
-     * Default: maxInFlight ≈ 4x CPU cores.
-     */
-    public PipelineOrchestrator(SourceConnector<I> source,
-                                OutputSink<O> primarySink,
-                                OutputSink<I> dlqSink,
-                                Transformer<I, O> transformer,
-                                CacheStrategy<I> cache) {
-        this(source,
-                primarySink,
-                dlqSink,
-                transformer,
-                cache,
-                Runtime.getRuntime().availableProcessors() * 4);
-    }
-
-    /**
-     * Explicitly configurable parallelism.
-     */
     public PipelineOrchestrator(SourceConnector<I> source,
                                 OutputSink<O> primarySink,
                                 OutputSink<I> dlqSink,
@@ -54,52 +47,126 @@ public class PipelineOrchestrator<I, O> {
         this.dlqSink = dlqSink;
         this.transformer = transformer;
         this.cache = cache;
-        this.maxInFlight = Math.max(1, maxInFlight);
-        this.inFlight = new Semaphore(this.maxInFlight);
+        this.maxInFlight = maxInFlight;
     }
 
+    /**
+     * Convenience constructor with a default maxInFlight.
+     */
+    public PipelineOrchestrator(SourceConnector<I> source,
+                                OutputSink<O> primarySink,
+                                OutputSink<I> dlqSink,
+                                Transformer<I, O> transformer,
+                                CacheStrategy<I> cache) {
+        this(source, primarySink, dlqSink, transformer, cache, 64);
+    }
+
+    /**
+     * Start the pipeline:
+     * - Initializes source and cache
+     * - Spins up the dispatcher loop on a dedicated thread
+     */
     public void start() {
-        source.connect();
-        log.info("Starting Parallel Pipeline (Virtual Threads) with maxInFlight={} ...", maxInFlight);
+        if (running) {
+            log.warn("Pipeline already running.");
+            return;
+        }
+
+        try {
+            log.info("Connecting SourceConnector...");
+            source.connect();
+        } catch (Exception e) {
+            // In case any implementation throws unchecked
+            log.error("Failed to connect SourceConnector", e);
+            throw new RuntimeException("Failed to start pipeline: source.connect() failed", e);
+        }
+
+        try {
+            log.info("Initializing CacheStrategy...");
+            cache.init();
+        } catch (Exception e) {
+            log.error("Failed to initialize CacheStrategy", e);
+            throw new RuntimeException("Failed to start pipeline: cache.init() failed", e);
+        }
+
+        running = true;
+        log.info("Starting Parallel Pipeline (Virtual Threads), maxInFlight={}", maxInFlight);
+
         dispatcherThread = new Thread(this::run, "pipeline-dispatcher");
         dispatcherThread.start();
     }
 
+    /**
+     * Stop the pipeline gracefully:
+     * - Signals dispatcher loop to stop
+     * - Waits briefly for it to join
+     * - Disconnects source and closes cache
+     */
     public void stop() {
+        if (!running) {
+            log.warn("Pipeline already stopped.");
+            return;
+        }
+
         log.info("Stopping Pipeline...");
         running = false;
-        if (dispatcherThread != null) {
-            dispatcherThread.interrupt(); // wake up fetch / sleep
-            try {
+
+        try {
+            if (dispatcherThread != null && dispatcherThread.isAlive()) {
+                dispatcherThread.interrupt();
                 dispatcherThread.join(5000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Interrupted while waiting for dispatcher thread to stop", e);
         }
-        source.disconnect();
+
+        try {
+            log.info("Disconnecting SourceConnector...");
+            source.disconnect();
+        } catch (Exception e) {
+            log.error("Error while disconnecting source", e);
+        }
+
+        try {
+            log.info("Closing CacheStrategy...");
+            cache.close();
+        } catch (Exception e) {
+            log.error("Error while closing cache", e);
+        }
+
         log.info("Pipeline stopped.");
     }
 
+    /**
+     * Dispatcher loop:
+     * - Uses a virtual-thread executor
+     * - Uses a Semaphore to bound in-flight tasks (backpressure)
+     * - Continuously polls the SourceConnector for new events
+     */
     private void run() {
-        // Single shared virtual-thread executor.
+        Semaphore inFlight = new Semaphore(maxInFlight);
+
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             while (running && !Thread.currentThread().isInterrupted()) {
 
-                // 1. FETCH (may block; implementation-specific)
-                PipelinePayload<I> inputPayload = source.fetch();
-
-                if (inputPayload == null) {
-                    // No data available right now – back off a bit.
-                    try {
-                        Thread.sleep(10);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
+                PipelinePayload<I> inputPayload;
+                try {
+                    inputPayload = source.fetch();
+                } catch (Exception e) {
+                    log.error("Error fetching from SourceConnector", e);
+                    // brief backoff on fetch error
+                    sleepQuietly(10);
                     continue;
                 }
 
-                // 2. BACKPRESSURE: limit number of in-flight tasks
+                if (inputPayload == null) {
+                    // No data right now, back off a bit
+                    sleepQuietly(5);
+                    continue;
+                }
+
+                // Acquire permit – backpressure if too many in-flight
                 try {
                     inFlight.acquire();
                 } catch (InterruptedException e) {
@@ -107,52 +174,52 @@ public class PipelineOrchestrator<I, O> {
                     break;
                 }
 
-                // 3. DISPATCH (Virtual Thread)
+                final PipelinePayload<I> taskPayload = inputPayload;
                 executor.submit(() -> {
                     try {
-                        processEvent(inputPayload);
+                        processEvent(taskPayload);
                     } finally {
                         inFlight.release();
                     }
                 });
             }
-
-            // Wait for in-flight tasks to finish before closing executor
-            // (executor.close() will also wait, but this makes intent explicit)
-            while (inFlight.availablePermits() < maxInFlight) {
-                try {
-                    Thread.sleep(5);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            }
-
         } catch (Exception e) {
-            log.error("Pipeline run loop terminated with error", e);
+            log.error("Pipeline execution encountered a fatal error", e);
         }
+
+        log.info("Dispatcher loop exited.");
     }
 
+    /**
+     * Core event processing:
+     * - Optionally interacts with CacheStrategy (you can extend this later)
+     * - Applies Transformer
+     * - Writes to primary sink
+     * - Routes failures to DLQ sink
+     */
     private void processEvent(PipelinePayload<I> inputPayload) {
         try {
-            // Optional: simple cache hook (idempotency / dedupe)
-            // var cached = cache.get(inputPayload.id());
-            // if (cached.isPresent()) {
-            //     return; // or use cached result
-            // }
+            // If you want to use cache, e.g.:
+            // cache.put(inputPayload.id(), inputPayload);
 
             PipelinePayload<O> resultPayload = transformer.transform(inputPayload);
             primarySink.write(resultPayload);
 
-            // cache.put(inputPayload.id(), inputPayload);
-
         } catch (Exception e) {
-            log.error("❌ Failed ID: {}", inputPayload.id(), e);
+            log.error("❌ Failed processing ID: {}", inputPayload.id(), e);
             try {
                 dlqSink.write(inputPayload);
             } catch (Exception dlqError) {
-                log.error("💀 DLQ Failed", dlqError);
+                log.error("💀 DLQ write failed for ID: {}", inputPayload.id(), dlqError);
             }
+        }
+    }
+
+    private void sleepQuietly(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
         }
     }
 }

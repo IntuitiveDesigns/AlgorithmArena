@@ -14,13 +14,22 @@ import com.example.arena.kafka.output.KafkaSink;
 import java.util.Optional;
 import java.util.Properties;
 
+/**
+ * Central wiring class for Sources, Sinks, Transformers, and CacheStrategies.
+ *
+ * This is the main “extension point” for adding new connector types.
+ * Open-source users can:
+ *  - Implement SourceConnector / OutputSink / CacheStrategy
+ *  - Add a new case in the switch for source.type / sink.type / cache.type
+ *  - Configure via pipeline.properties
+ */
 public class PipelineFactory {
 
     // ------------------------------------------------------------------------
     // SOURCE
     // ------------------------------------------------------------------------
     public static SourceConnector<String> createSource(PipelineConfig config) {
-        String type = config.getProperty("source.type", "REST");
+        String type = config.getProperty("source.type", "REST").toUpperCase();
 
         return switch (type) {
             case "REST" -> new RestSourceConnector();
@@ -39,14 +48,14 @@ public class PipelineFactory {
     // SINK
     // ------------------------------------------------------------------------
     public static OutputSink<String> createSink(PipelineConfig config) {
-        String type = config.getProperty("sink.type", "KAFKA");
+        String type = config.getProperty("sink.type", "KAFKA").toUpperCase();
 
         return switch (type) {
             case "KAFKA" -> {
                 String topic = config.getProperty("sink.topic", "arena-default");
                 Properties props = loadProducerProps(config);
 
-                // default false = async for performance
+                // default false = async for performance; true = sync for safety
                 boolean syncSend = Boolean.parseBoolean(
                         config.getProperty("kafka.sink.sync", "false")
                 );
@@ -55,7 +64,7 @@ public class PipelineFactory {
             }
 
             case "CONSOLE" -> payload -> {
-                // no-op or optional println for debugging
+                // no-op or optional println for debugging / pure CPU benchmarks
                 // System.out.println(">> " + payload.data());
             };
 
@@ -67,7 +76,8 @@ public class PipelineFactory {
     // TRANSFORMER
     // ------------------------------------------------------------------------
     public static Transformer<String, String> createTransformer(PipelineConfig config) {
-        // Simple passthrough transformer for now; your KafkaApp overrides this anyway
+        // Simple default business logic.
+        // KafkaApp can still override this with a custom transformer.
         return input -> input.withData(input.data().toUpperCase());
     }
 
@@ -75,22 +85,28 @@ public class PipelineFactory {
     // CACHE
     // ------------------------------------------------------------------------
     public static CacheStrategy<String> createCache(PipelineConfig config) {
-        String type = config.getProperty("cache.type", "LOCAL");
+        String type = config.getProperty("cache.type", "LOCAL").toUpperCase();
 
         return switch (type) {
             case "LOCAL" -> new LocalCacheStrategy<>();
+
             case "REDIS" -> new RedisCacheStrategy<>();
+
             default -> new CacheStrategy<>() {
                 @Override
-                public void put(String key, PipelinePayload<String> value) { /* no-op */ }
+                public void put(String key, PipelinePayload<String> value) throws Exception {
+                    // no-op
+                }
 
                 @Override
-                public Optional<PipelinePayload<String>> get(String key) {
+                public Optional<PipelinePayload<String>> get(String key) throws Exception {
                     return Optional.empty();
                 }
 
                 @Override
-                public void remove(String key) { /* no-op */ }
+                public void remove(String key) throws Exception {
+                    // no-op
+                }
             };
         };
     }
@@ -99,7 +115,11 @@ public class PipelineFactory {
     // HELPER METHODS: PRODUCER / CONSUMER PROPS
     // ------------------------------------------------------------------------
 
-    private static Properties loadProducerProps(PipelineConfig config) {
+    /**
+     * Build tuned Kafka Producer properties from pipeline.properties
+     * with reasonable throughput-oriented defaults.
+     */
+    static Properties loadProducerProps(PipelineConfig config) {
         Properties props = new Properties();
         props.put("bootstrap.servers",
                 config.getProperty("kafka.broker", "localhost:9092"));
@@ -127,7 +147,10 @@ public class PipelineFactory {
         return props;
     }
 
-    private static Properties loadConsumerProps(PipelineConfig config) {
+    /**
+     * Build tuned Kafka Consumer properties from pipeline.properties.
+     */
+    static Properties loadConsumerProps(PipelineConfig config) {
         Properties props = new Properties();
         props.put("bootstrap.servers",
                 config.getProperty("kafka.broker", "localhost:9092"));

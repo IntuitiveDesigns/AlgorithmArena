@@ -21,3 +21,6 @@ Thumbs.db
 
 # DBeaver (Database tool config - optional, usually good to ignore)
 .dbeaver/
+
+# Kafka docker build
+data/

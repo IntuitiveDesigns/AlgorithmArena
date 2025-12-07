@@ -3,11 +3,11 @@ package com.example.arena.kafka;
 import com.example.arena.kafka.config.PipelineConfig;
 import com.example.arena.kafka.config.PipelineFactory;
 import com.example.arena.kafka.core.CacheStrategy;
+import com.example.arena.kafka.core.MonitoredTransformer;
 import com.example.arena.kafka.core.OutputSink;
 import com.example.arena.kafka.core.PipelineOrchestrator;
 import com.example.arena.kafka.core.SourceConnector;
 import com.example.arena.kafka.core.Transformer;
-import com.example.arena.kafka.core.MonitoredTransformer;
 import com.sun.net.httpserver.HttpServer;
 import io.micrometer.prometheus.PrometheusConfig;
 import io.micrometer.prometheus.PrometheusMeterRegistry;
@@ -25,7 +25,15 @@ public class KafkaApp {
     public static void main(String[] args) {
         log.info("=== Booting Enterprise Pipeline Agent ===");
 
+        // --------------------------------------------------------------------
+        // 0. LOAD CONFIG
+        // --------------------------------------------------------------------
         PipelineConfig config = PipelineConfig.get();
+
+        String pipelineName = config.getProperty("pipeline.name", "Unnamed-Pipeline");
+        String sourceType = config.getProperty("source.type", "REST");
+        String sinkType = config.getProperty("sink.type", "KAFKA");
+        String cacheType = config.getProperty("cache.type", "LOCAL");
 
         // --------------------------------------------------------------------
         // 1. METRICS / OBSERVABILITY (TOGGLEABLE)
@@ -53,7 +61,24 @@ public class KafkaApp {
         }
 
         // --------------------------------------------------------------------
-        // 2. BUILD PIPELINE COMPONENTS
+        // 2. PARALLELISM / BACKPRESSURE CONFIG
+        // --------------------------------------------------------------------
+        int parallelism;
+        try {
+            parallelism = config.getInt("pipeline.parallelism");
+        } catch (RuntimeException ex) {
+            parallelism = Runtime.getRuntime().availableProcessors() * 4;
+            log.warn("pipeline.parallelism not set; using default {}", parallelism);
+        }
+
+        // Log scenario summary up front
+        log.info(
+                "🔧 Pipeline Config: name='{}', source.type='{}', sink.type='{}', cache.type='{}', parallelism={}",
+                pipelineName, sourceType, sinkType, cacheType, parallelism
+        );
+
+        // --------------------------------------------------------------------
+        // 3. BUILD PIPELINE COMPONENTS
         // --------------------------------------------------------------------
         SourceConnector<String> source = PipelineFactory.createSource(config);
         OutputSink<String> primarySink = PipelineFactory.createSink(config);
@@ -61,7 +86,7 @@ public class KafkaApp {
                 payload -> log.warn("⚠️ [DLQ] Saved Bad Event: {}", payload.id());
         CacheStrategy<String> cache = PipelineFactory.createCache(config);
 
-        // BUSINESS LOGIC
+        // BUSINESS LOGIC (example: uppercase transform)
         Transformer<String, String> businessLogic =
                 input -> input.withData(input.data().toUpperCase());
 
@@ -76,16 +101,8 @@ public class KafkaApp {
                         : businessLogic;
 
         // --------------------------------------------------------------------
-        // 3. ORCHESTRATOR (PARALLELISM CONFIG)
+        // 4. ORCHESTRATOR
         // --------------------------------------------------------------------
-        int parallelism;
-        try {
-            parallelism = config.getInt("pipeline.parallelism");
-        } catch (RuntimeException ex) {
-            parallelism = Runtime.getRuntime().availableProcessors() * 4;
-            log.warn("pipeline.parallelism not set; using default {}", parallelism);
-        }
-
         PipelineOrchestrator<String, String> pipeline =
                 new PipelineOrchestrator<>(
                         source,
@@ -93,7 +110,7 @@ public class KafkaApp {
                         dlqSink,
                         transformer,
                         cache,
-                        parallelism
+                        parallelism // maxInFlight / backpressure control
                 );
 
         // Graceful shutdown on SIGTERM / Ctrl+C
@@ -102,7 +119,7 @@ public class KafkaApp {
         );
 
         // --------------------------------------------------------------------
-        // 4. RUN PIPELINE (BLOCK MAIN THREAD)
+        // 5. RUN PIPELINE (BLOCK MAIN THREAD)
         // --------------------------------------------------------------------
         pipeline.start();
         try {
