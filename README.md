@@ -1,3 +1,4 @@
+
 # Algorithm Arena ⚔️
 ## A Modern Java 21 Data Structures & Algorithms Benchmarking Framework
 
@@ -5,184 +6,166 @@
 
 ## 🚀 Overview
 
-Algorithm Arena is not just a collection of algorithms. It is a modernization of classic CS concepts using Java 21 features such as Records, Pattern Matching, Sealed Classes, and Virtual Threads.
+Algorithm Arena modernizes classic CS concepts using Java 21 features such as Records, Pattern Matching, Sealed Classes, and Virtual Threads.
 
-At its core is a **Polymorphic Benchmarking Arena** that allows you to compare algorithms in real time, validating theoretical Big-O complexity against real execution performance.
+At its core is a **Polymorphic Benchmarking Arena** that compares algorithms in real time, validating theoretical Big‑O performance against real execution behavior.
 
 ---
 
 ## 🌟 Unique Features
 
-### 1. Self-Validating Complexity Contracts (`BigOAnalysis`)
-
-Every algorithm must explicitly declare its **time and space complexity** before the program will compile.  
-This guarantees consistent, transparent, and enforceable performance expectations.
+### 1. Self‑Validating Complexity Contracts (`BigOAnalysis`)
+Every algorithm declares its **time and space complexity** before compiling, ensuring transparency and consistency.
 
 ---
 
-### 2. The Sorting Arena (`SortingComparison`)
+### 2. Sorting Arena (`SortingComparison`)
+Benchmark 15+ sorting algorithms under controlled conditions.
 
-A console-driven benchmarking tool comparing 15+ sorting algorithms under identical conditions.
-
-**Features:**
-
-- Identical randomized datasets for fair comparison
-- Microsecond-precision timers
-- Recursive stack-overflow protection
-- Sorting verification to ensure correctness
+**Includes:**
+- Identical randomized datasets  
+- Microsecond timers  
+- Recursive overflow protection  
+- Automatic sorting verification  
 
 ---
 
 ### 3. Enterprise Event Pipeline (`KafkaApp`)
-
-A production-grade event pipeline capable of **25,000+ events/sec** on local hardware.
+A production‑grade ingestion pipeline capable of **200,000+ events/sec** using Java 21 Virtual Threads.
 
 **Highlights:**
-
-- **Strategy Pattern** architecture for Sources, Sinks, and Transformers
-- **Dead Letter Queue (DLQ)** isolation for poison-pill events
-- **Micrometer metrics + SLF4J structured logging** for observability
-- Event-sourcing design with fast replay capability
+- Strategy‑pattern Sources, Sinks, Transformers  
+- Dead Letter Queue (DLQ) for poison‑pill events  
+- Prometheus metrics + Grafana dashboards  
+- Fast replay and event‑sourcing architecture  
 
 ---
 
 ### 4. Modern Java 21 Syntax
-
-Refactored to use Java’s newest language features:
-
-- Records for immutable data models (e.g., `PipelinePayload`)
-- Pattern-matching switch expressions
-- Virtual Threads for massive concurrency
-- Functional interfaces demonstrating Strategy Pattern evolution
+- Immutable Records  
+- Pattern‑matching switches  
+- Virtual Threads for extreme concurrency  
+- Clean functional interfaces  
 
 ---
 
-## 🛠️ Tech Stack
+# 📊 Observability: Prometheus + Grafana Integration
 
-- **Language:** Java 21 (LTS)
-- **Build System:** Gradle 8.5
-- **Frameworks:** Spring Boot 3.2, Lombok
-- **Messaging:** Apache Kafka (NVMe-optimized), LZ4 compression
-- **Observability:** Micrometer, Logback structured logging
+Algorithm Arena now includes a full observability stack to monitor real‑time throughput, latency, and saturation.
 
 ---
 
-## 📂 Project Structure
+## 🚀 1. Access Grafana
 
-```text
-com.example.arena.kafka
-    High-throughput event pipeline (Producer, Consumer, Orchestrator)
+After running Docker:
 
-com.example.arena.sorting
-    Benchmarking Arena and decorators
+➡️ http://localhost:3000  
+**Username:** admin  
+**Password:** admin  
 
-com.example.arena.datastructures
-    Custom DS implementations (Heap, Graph, BST) with Big-O contracts
+---
 
-com.example.arena.algorithms
-    Interview patterns (Sliding Window, Two Pointers)
+## 🔗 2. Connect Prometheus as a Data Source
 
-com.example.arena.hackerrank
-    Complex problem implementations (Trapping Rain Water, Group Anagrams)
+1. Click **Add your first data source**  
+2. Select **Prometheus**  
+3. Set URL:
 
-com.example.arena.error
-    Chaos Monkey simulator for CPU spikes and memory leaks
+```
+http://prometheus:9090
 ```
 
----
-
-## ⚡ High-Performance Kafka Architecture
-
-The Arena includes a Kafka setup optimized for:
-
-- Local NVMe/SSD
-- High-throughput ingestion
-- Fast historical replay
-- Zero external dependencies (no Redis, no S3)
-
-Kafka acts as the **system of record**.
+4. Click **Save & Test** → *“Data source is working.”*
 
 ---
 
-## 📂 Configuration Layout
+## 📈 3. Build a Throughput Dashboard
 
-- **Broker Configuration:** `docker-compose.yaml`
-- **Client Configuration:** `src/main/resources/*.properties`
+1. **+ → New Dashboard**  
+2. **Add visualization**  
+3. Select **Prometheus**  
+4. Query:
 
----
-
-## 🛠️ Setup Instructions
-
-### 1. Configure the Kafka Broker (Infrastructure)
-
-The included `docker-compose.yaml` contains optimized settings:
-
-**Key Optimizations**
-
-- IO Threads: 8
-- Network Threads: 12
-- Log Segments: 1GB
-
-Start infrastructure:
-
-```bash
-docker-compose up -d
+```
+rate(pipeline_transform_latency_seconds_count[5s])
 ```
 
----
-
-### 2. Configure the Java Client
-
-The application automatically loads:
-
-- LZ4 compression
-- 128 KB batching
-- 1 MB+ consumer fetch sizes
-
-No additional setup required.
+5. Click **Run queries**  
+A throughput graph appears when the app is running.
 
 ---
 
-### 3. Storage Requirement
+## 🔥 4. See Throughput Live
 
-Because `log.retention.bytes` is configured as a hard cap, ensure the Kafka log directory has **at least 500 GB** of free space.
+Run:
 
----
-
-## 🚀 How to Run
-
-### 1. Start Infrastructure
-
-```bash
-docker-compose up -d
 ```
-
-### 2. Start the Pipeline (Consumer)
-
-```bash
 ./gradlew bootRun
 ```
 
-This starts the KafkaApp orchestrator which waits for incoming events.
-
-### 3. Generate Load (Producer)
-
-Run from your IDE:
-
-```text
-com.example.arena.kafka.ArenaProducer.main()
-```
-
-This floods the pipeline with 25k+ events/sec (depending on local hardware).
+Grafana updates instantly with EPS, latency, and performance curves.
 
 ---
 
-## 🏁 Final Notes
+## 📝 PURE JAVA vs KAFKA PERFORMANCE
 
-Algorithm Arena combines:
+| Mode | Measures | Notes |
+|------|----------|-------|
+| **sink.type=CONSOLE** | Pure Java engine throughput | Peaks above 200k EPS |
+| **sink.type=KAFKA** | Full pipeline performance | Docker Desktop on Windows limits Kafka I/O |
 
-- A benchmark lab for algorithms and data structures
-- An enterprise-style event pipeline
-- A modern Java 21 feature showcase
+> For real Kafka benchmarking, use Linux or a cloud deployment.
 
-Use it to explore how theoretical performance translates into reality in a real-world architecture.
+---
+
+# 🛠️ Tech Stack
+- Java 21  
+- Gradle 8.5  
+- Spring Boot 3.2  
+- Kafka (NVMe optimized)  
+- Prometheus  
+- Grafana  
+- Micrometer  
+
+---
+
+# 🛠️ Setup Instructions
+
+## 1. Start Infrastructure
+```
+docker-compose up -d
+```
+
+## 2. Create Topic
+```
+docker exec arena-broker kafka-topics --bootstrap-server localhost:9092 --create --topic raw-customer-events --partitions 10 --replication-factor 1
+```
+
+## 3. Start the Pipeline
+```
+./gradlew bootRun
+java -Xms4g -Xmx4g -jar .\build\libs\AlgorithmArena-0.0.1-SNAPSHOT.jar
+```
+
+## 4. Generate Load (Producer)
+```
+com.example.arena.kafka.ArenaProducer.main()
+```
+
+---
+
+# 📁 Configuration Layout
+- Infrastructure: `docker-compose.yaml`  
+- Pipeline config: `src/main/resources/pipeline.properties`  
+
+---
+
+# 🏁 Final Notes
+Algorithm Arena is a blend of:
+
+- Algorithm benchmarking  
+- Enterprise ingestion pipeline  
+- Performance engineering  
+- Modern Java 21 exploration  
+
+GitHub: https://github.com/IntuitiveDesigns/AlgorithmArena
