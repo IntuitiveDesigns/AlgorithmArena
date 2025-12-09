@@ -1,5 +1,6 @@
 package com.example.arena.kafka.output;
 
+import com.example.arena.kafka.config.PipelineConfig;
 import com.example.arena.kafka.core.OutputSink;
 import com.example.arena.kafka.core.PipelinePayload;
 import org.apache.kafka.clients.producer.KafkaProducer;
@@ -33,6 +34,25 @@ public class KafkaSink implements OutputSink<String>, AutoCloseable {
         this.producer = new KafkaProducer<>(props);
         this.syncSend = syncSend;
         log.info("KafkaSink created for topic='{}', syncSend={}", topic, syncSend);
+    }
+
+    private static Properties buildProducerProps(PipelineConfig config) {
+        Properties props = new Properties();
+        props.put("bootstrap.servers", config.getProperty("kafka.broker", "localhost:9092"));
+        props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+        props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+
+        props.put("acks", config.getProperty("kafka.producer.acks", "1"));
+        props.put("compression.type", config.getProperty("kafka.producer.compression", "lz4"));
+        props.put("batch.size", config.getProperty("kafka.producer.batch.size", "131072"));
+        props.put("linger.ms", config.getProperty("kafka.producer.linger.ms", "5"));
+        props.put("buffer.memory", config.getProperty("kafka.producer.buffer.memory", "67108864"));
+        props.put("max.in.flight.requests.per.connection",
+                config.getProperty("kafka.producer.max.in.flight", "5"));
+        props.put("enable.idempotence",
+                config.getProperty("kafka.producer.idempotence", "false"));
+
+        return props;
     }
 
     @Override

@@ -25,30 +25,38 @@ configurations {
 
 repositories {
     mavenCentral()
+    maven { url "https://packages.confluent.io/maven" }
 }
 
 dependencies {
-    // 1. Core Framework
+    // Core Framework
     implementation 'org.springframework.boot:spring-boot-starter'
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
 
-    // 2. Kafka Client
+    // Kafka Client
     implementation 'org.apache.kafka:kafka-clients:3.7.0'
 
-    // 3. Logging & Metrics
+    // Logging & Metrics
     implementation 'ch.qos.logback:logback-classic'
     implementation 'io.micrometer:micrometer-core'
     // ^^^ SimpleMeterRegistry is INSIDE this jar. No extra dependency needed.
 
-    // 4. Lombok
+    // Lombok
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 
-    // 5. Testing
+    // Testing
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
 
-    // 6. Visual Observability
+    // Visual Observability
     implementation 'io.micrometer:micrometer-registry-prometheus'
+
+    // Avro + Confluent Schema Registry
+    implementation 'io.confluent:kafka-avro-serializer:7.6.1'
+    implementation 'org.apache.avro:avro:1.11.3'
+
+    // PostgreSQL support
+    implementation 'org.postgresql:postgresql:42.7.2'
 }
 
 tasks.named('test') {

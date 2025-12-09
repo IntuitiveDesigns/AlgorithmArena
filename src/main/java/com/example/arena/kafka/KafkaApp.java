@@ -80,11 +80,26 @@ public class KafkaApp {
         // --------------------------------------------------------------------
         // 3. BUILD PIPELINE COMPONENTS
         // --------------------------------------------------------------------
-        SourceConnector<String> source = PipelineFactory.createSource(config);
-        OutputSink<String> primarySink = PipelineFactory.createSink(config);
+        SourceConnector<String> source;
+        OutputSink<String> primarySink;
+        CacheStrategy<String> cache;
+
+        try {
+            // Factories now throw checked exceptions (e.g., ClassNotFound, IOException)
+            source = PipelineFactory.createSource(config);
+            primarySink = PipelineFactory.createSink(config);
+            cache = PipelineFactory.createCache(config);
+        } catch (Exception e) {
+            log.error("🚨 Fatal Error: Failed to initialize pipeline components.", e);
+            System.err.println("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv");
+            e.printStackTrace(); // FORCE PRINT STACK TRACE
+            System.err.println("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+            System.exit(1); // Non-zero exit code to signal failure to Docker/Orchestrator
+            return;         // Stop execution
+        }
+
         OutputSink<String> dlqSink =
                 payload -> log.warn("⚠️ [DLQ] Saved Bad Event: {}", payload.id());
-        CacheStrategy<String> cache = PipelineFactory.createCache(config);
 
         // BUSINESS LOGIC (example: uppercase transform)
         Transformer<String, String> businessLogic =

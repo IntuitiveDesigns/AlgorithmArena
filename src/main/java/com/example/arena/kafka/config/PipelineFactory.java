@@ -9,7 +9,10 @@ import com.example.arena.kafka.core.SourceConnector;
 import com.example.arena.kafka.core.Transformer;
 import com.example.arena.kafka.ingestion.KafkaSourceConnector;
 import com.example.arena.kafka.ingestion.RestSourceConnector;
+import com.example.arena.kafka.output.KafkaAvroSink;
+import com.example.arena.kafka.output.PostgresSink;
 import com.example.arena.kafka.output.KafkaSink;
+import org.apache.avro.Schema;
 
 import java.util.Optional;
 import java.util.Properties;
@@ -40,6 +43,9 @@ public class PipelineFactory {
                 yield new KafkaSourceConnector(topic, props);
             }
 
+            case "SYNTHETIC" -> new com.example.arena.kafka.bench.SyntheticSource();
+
+
             default -> throw new IllegalArgumentException("Unknown Source: " + type);
         };
     }
@@ -47,7 +53,7 @@ public class PipelineFactory {
     // ------------------------------------------------------------------------
     // SINK
     // ------------------------------------------------------------------------
-    public static OutputSink<String> createSink(PipelineConfig config) {
+    public static OutputSink<String> createSink(PipelineConfig config) throws Exception {
         String type = config.getProperty("sink.type", "KAFKA").toUpperCase();
 
         return switch (type) {
@@ -67,6 +73,32 @@ public class PipelineFactory {
                 // no-op or optional println for debugging / pure CPU benchmarks
                 // System.out.println(">> " + payload.data());
             };
+
+            case "KAFKA_AVRO" -> {
+                String topic = config.getProperty("sink.topic", "arena-customer");
+                Properties props = loadProducerProps(config);
+
+                // Schema Registry config (Confluent)
+                props.put("schema.registry.url",
+                        config.getProperty("schema.registry.url", "http://localhost:8081"));
+
+                Schema schema = KafkaAvroSink.loadSchemaFromResource(
+                        config.getProperty("avro.schema.resource", "CustomerEvent.avsc")
+                );
+
+                yield new KafkaAvroSink(topic, props, schema);
+            }
+
+            case "POSTGRES" -> {
+                String url  = config.getProperty("db.url", "jdbc:postgresql://localhost:5432/arena_db");
+                String user = config.getProperty("db.user", "arena");
+                String pass = config.getProperty("db.password", "arena");
+                int batch   = Integer.parseInt(config.getProperty("db.batch.size", "500"));
+                yield new PostgresSink(url, user, pass, batch);
+            }
+
+            case "DEVNULL" -> new com.example.arena.kafka.bench.DevNullSink<>();
+
 
             default -> throw new IllegalArgumentException("Unknown Sink: " + type);
         };

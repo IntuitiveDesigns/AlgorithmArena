@@ -76,3 +76,13 @@ services:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
+
+  postgres:
+    image: postgres:16
+    container_name: arena-postgres
+    environment:
+      POSTGRES_USER: arena
+      POSTGRES_PASSWORD: arena
+      POSTGRES_DB: arena_db
+    ports:
+      - "5432:5432"

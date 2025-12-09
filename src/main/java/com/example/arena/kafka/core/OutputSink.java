@@ -1,5 +1,12 @@
 package com.example.arena.kafka.core;
 
+import com.example.arena.kafka.config.PipelineConfig;
+import com.example.arena.kafka.output.KafkaSink;
+import com.example.arena.kafka.output.PostgresSink;
+
+import java.sql.SQLException;
+import java.util.Properties;
+
 /**
  * A pluggable destination for pipeline events.
  *
@@ -37,4 +44,5 @@ public interface OutputSink<T> {
      * @throws Exception if persistence fails or the target system rejects the event
      */
     void write(PipelinePayload<T> payload) throws Exception;
+
 }
