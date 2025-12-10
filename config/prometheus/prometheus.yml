@@ -7,3 +7,26 @@ scrape_configs:
     static_configs:
       # 'host.docker.internal' allows Docker to see your Windows/Mac host
       - targets: ['host.docker.internal:8080']
+
+      # 1) Your benchmark app
+      - job_name: 'arena-sink-bench'
+        metrics_path: /metrics
+        static_configs:
+          - targets: [ 'localhost:8080' ]
+            labels:
+              app: 'arena'
+              component: 'sink-benchmark'
+
+      # 2) Kafka broker(s) via kafka_exporter or JMX exporter (optional)
+      - job_name: 'kafka'
+        static_configs:
+          - targets: [ 'localhost:9308' ]   # adjust for your exporter
+            labels:
+              app: 'kafka'
+
+      # 3) Postgres via postgres_exporter (optional)
+      - job_name: 'postgres'
+        static_configs:
+          - targets: [ 'localhost:9187' ]   # adjust for your exporter
+            labels:
+              app: 'postgres'

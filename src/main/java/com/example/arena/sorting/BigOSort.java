@@ -23,4 +23,14 @@ public abstract class BigOSort {
 
     // --- SPACE COMPLEXITY ---
     public abstract String getSpaceComplexity();
+
+    public String bigOContract() {
+        return new StringBuilder()
+                .append("Algorithm:         ").append(getSortName()).append(System.lineSeparator())
+                .append("Best case time:    ").append(getBestTime()).append(System.lineSeparator())
+                .append("Average case time: ").append(getAverageTime()).append(System.lineSeparator())
+                .append("Worst case time:   ").append(getWorstTime()).append(System.lineSeparator())
+                .append("Space complexity:  ").append(getSpaceComplexity())
+                .toString();
+    }
 }

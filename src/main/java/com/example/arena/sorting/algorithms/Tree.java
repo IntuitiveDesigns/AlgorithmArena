@@ -88,9 +88,10 @@ public class Tree extends BigOSort {
         Tree sorter = new Tree();
         int[] input = {5, 1, 4, 2, 8, 5}; // Note the duplicate '5'
 
-        System.out.println("Running " + sorter.getSortName());
-        sorter.run(input);
+        System.out.println(sorter.bigOContract());
+        System.out.println();
 
+        sorter.run(input);
         System.out.println("Sorted: " + Arrays.toString(input));
     }
 }

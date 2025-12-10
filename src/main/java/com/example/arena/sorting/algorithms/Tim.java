@@ -106,9 +106,10 @@ public class Tim extends BigOSort {
         Tim sorter = new Tim();
         int[] input = {5, 21, 7, 23, 19};
 
-        System.out.println("Running " + sorter.getSortName());
-        sorter.run(input);
+        System.out.println(sorter.bigOContract());
+        System.out.println();
 
+        sorter.run(input);
         System.out.println("Sorted: " + Arrays.toString(input));
     }
 }
