@@ -13,35 +13,41 @@ public class HashTableSample extends BigODataStructures {
         this.table = new Hashtable<>();
     }
 
-    // --- BIG O CONTRACT ---
-    // (Identical to HashMap, just slower due to synchronization overhead)
+    // --- BIG O CONTRACT VALUES ---
+    // (Same asymptotics as HashMap, just slower in practice due to synchronization)
 
     @Override
-    public String getAvgAccess() { return "O(1)"; }
+    public String getAvgAccess()     { return "O(1)"; }
+    @Override
+    public String getAvgSearch()     { return "O(1)"; }
+    @Override
+    public String getAvgInsertion()  { return "O(1)"; }
+    @Override
+    public String getAvgDeletion()   { return "O(1)"; }
 
     @Override
-    public String getAvgSearch() { return "O(1)"; }
-
+    public String getWorstAccess()   { return "O(n)"; }
     @Override
-    public String getAvgInsertion() { return "O(1)"; }
-
+    public String getWorstSearch()   { return "O(n)"; }
     @Override
-    public String getAvgDeletion() { return "O(1)"; }
-
-    @Override
-    public String getWorstAccess() { return "O(n)"; }
-
-    @Override
-    public String getWorstSearch() { return "O(n)"; }
-
-    @Override
-    public String getWorstInsertion() { return "O(n)"; }
-
+    public String getWorstInsertion(){ return "O(n)"; }
     @Override
     public String getWorstDeletion() { return "O(n)"; }
 
     @Override
     public String getSpaceComplexity() { return "O(n)"; }
+
+    // Override the default, array-style contract with a map-style summary
+    @Override
+    public String bigOContract() {
+        return new StringBuilder()
+                .append("Data structure:          ").append(getDataStructureName()).append(System.lineSeparator())
+                .append("Core operations:         get(key), put(key, value), remove(key), containsKey(key)").append(System.lineSeparator())
+                .append("Average time per op:     ").append(getAvgAccess()).append(System.lineSeparator())
+                .append("Worst-case time per op:  ").append(getWorstAccess()).append(System.lineSeparator())
+                .append("Space complexity:        ").append(getSpaceComplexity())
+                .toString();
+    }
 
     // --- LOGIC ---
 
@@ -83,17 +89,20 @@ public class HashTableSample extends BigODataStructures {
             table.put(key, value);
             System.out.println("Inserted: " + key);
         } catch (NullPointerException e) {
-            System.err.println("Error: Hashtable does not allow null keys/values!");
+            System.out.println("[Warning] Hashtable does not allow null keys or values. Skipped insertion.");
         }
     }
 
     public void insertion() {
+        System.out.println("--- INSERTION DEMO ---");
+
         insertion("Alice", 30);
         insertion("Bob", 40);
 
-        // Demonstrate the "No Nulls" rule (Interview Trap)
         System.out.println("Attempting to insert null key...");
-        insertion(null, 50); // This will catch the exception
+        insertion(null, 50);
+
+        System.out.println();
     }
 
     /**

@@ -27,7 +27,7 @@ public abstract class BigODataStructures {
     // --- SPACE COMPLEXITY ---
     public abstract String getSpaceComplexity();
 
-    // --- UNIFIED BIG-O CONTRACT ---
+    // Default “array/linear” view. Map-like structures can override this.
     public String bigOContract() {
         return new StringBuilder()
                 .append("Data structure:          ").append(getDataStructureName()).append(System.lineSeparator())
