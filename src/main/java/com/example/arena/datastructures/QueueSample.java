@@ -91,6 +91,9 @@ public class QueueSample extends BigODataStructures {
     public static void main(String[] args) {
         QueueSample q = new QueueSample();
 
+        System.out.println(q.bigOContract());
+        System.out.println();
+
         System.out.println("Structure: " + q.getDataStructureName());
 
         // 1. Enqueue (First In)

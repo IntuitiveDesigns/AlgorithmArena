@@ -169,6 +169,9 @@ public class LinkedListSample extends BigODataStructures {
     public static void main(String[] args) {
         LinkedListSample list = new LinkedListSample();
 
+        System.out.println(list.bigOContract());
+        System.out.println();
+
         System.out.println("Structure: " + list.getDataStructureName());
 
         // 1. Insert (Note: Inserting at head reverses order of entry)

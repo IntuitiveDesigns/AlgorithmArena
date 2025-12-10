@@ -144,6 +144,9 @@ public class MatrixSample extends BigODataStructures {
     public static void main(String[] args) {
         MatrixSample grid = new MatrixSample();
 
+        System.out.println(grid.bigOContract());
+        System.out.println();
+
         System.out.println("Structure: " + grid.getDataStructureName());
 
         // 1. Access

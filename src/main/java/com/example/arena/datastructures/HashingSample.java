@@ -113,6 +113,9 @@ public class HashingSample extends BigODataStructures {
     public static void main(String[] args) {
         HashingSample hash = new HashingSample();
 
+        System.out.println(hash.bigOContract());
+        System.out.println();
+
         // 1. Insert
         hash.insertion();
 

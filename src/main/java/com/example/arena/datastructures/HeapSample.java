@@ -92,6 +92,9 @@ public class HeapSample extends BigODataStructures {
     public static void main(String[] args) {
         HeapSample sample = new HeapSample();
 
+        System.out.println(sample.bigOContract());
+        System.out.println();
+
         System.out.println("Structure: " + sample.getDataStructureName());
 
         sample.insertion(10);

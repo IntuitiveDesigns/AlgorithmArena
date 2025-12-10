@@ -102,6 +102,9 @@ public class StackSample extends BigODataStructures {
     public static void main(String[] args) {
         StackSample s = new StackSample();
 
+        System.out.println(s.bigOContract());
+        System.out.println();
+
         System.out.println("Structure: " + s.getDataStructureName());
 
         // 1. Push (10 -> 20 -> 30)

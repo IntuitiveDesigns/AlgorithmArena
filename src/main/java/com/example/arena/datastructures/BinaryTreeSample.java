@@ -183,6 +183,9 @@ public class BinaryTreeSample extends BigODataStructures {
         System.out.println("Found 60? " + bst.search(60)); // true
         System.out.println("Found 99? " + bst.search(99)); // false
 
+        System.out.println(bst.bigOContract());
+        System.out.println();
+
         // 4. Delete
         bst.deletion(20); // Leaf node
         bst.access();

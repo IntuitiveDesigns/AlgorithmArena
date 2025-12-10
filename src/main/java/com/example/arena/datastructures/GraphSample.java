@@ -144,6 +144,9 @@ public class GraphSample extends BigODataStructures {
     public static void main(String[] args) {
         GraphSample graph = new GraphSample();
 
+        System.out.println(graph.bigOContract());
+        System.out.println();
+
         // 1. Build Graph
         // 0 -- 1
         // |    |

@@ -2,10 +2,8 @@ package com.example.arena.datastructures;
 
 public abstract class BigODataStructures {
 
-    // 1. Make this final so it MUST be set once
     private final String dataStructureName;
 
-    // 2. Force subclasses to provide a name in the constructor
     public BigODataStructures(String dataStructureName) {
         this.dataStructureName = dataStructureName;
     }
@@ -14,19 +12,34 @@ public abstract class BigODataStructures {
         return dataStructureName;
     }
 
-    // --- Time Complexity (Average) ---
+    // --- AVERAGE CASE ---
     public abstract String getAvgAccess();
     public abstract String getAvgSearch();
     public abstract String getAvgInsertion();
     public abstract String getAvgDeletion();
 
-    // --- Time Complexity (Worst) ---
+    // --- WORST CASE ---
     public abstract String getWorstAccess();
     public abstract String getWorstSearch();
     public abstract String getWorstInsertion();
     public abstract String getWorstDeletion();
 
-    // --- NEW: Space Complexity (Critical for Interviews) ---
-    // Example: Arrays are O(n), QuickSort is O(log n) stack space
+    // --- SPACE COMPLEXITY ---
     public abstract String getSpaceComplexity();
+
+    // --- UNIFIED BIG-O CONTRACT ---
+    public String bigOContract() {
+        return new StringBuilder()
+                .append("Data structure:          ").append(getDataStructureName()).append(System.lineSeparator())
+                .append("Average access:          ").append(getAvgAccess()).append(System.lineSeparator())
+                .append("Average search:          ").append(getAvgSearch()).append(System.lineSeparator())
+                .append("Average insertion:       ").append(getAvgInsertion()).append(System.lineSeparator())
+                .append("Average deletion:        ").append(getAvgDeletion()).append(System.lineSeparator())
+                .append("Worst-case access:       ").append(getWorstAccess()).append(System.lineSeparator())
+                .append("Worst-case search:       ").append(getWorstSearch()).append(System.lineSeparator())
+                .append("Worst-case insertion:    ").append(getWorstInsertion()).append(System.lineSeparator())
+                .append("Worst-case deletion:     ").append(getWorstDeletion()).append(System.lineSeparator())
+                .append("Space complexity:        ").append(getSpaceComplexity())
+                .toString();
+    }
 }

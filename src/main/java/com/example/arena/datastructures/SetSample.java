@@ -115,6 +115,9 @@ public class SetSample extends BigODataStructures {
     public static void main(String[] args) {
         SetSample sample = new SetSample();
 
+        System.out.println(sample.bigOContract());
+        System.out.println();
+
         System.out.println("Structure: " + sample.getDataStructureName());
 
         // 1. Insert (Notice the duplicate "Apple" is ignored)

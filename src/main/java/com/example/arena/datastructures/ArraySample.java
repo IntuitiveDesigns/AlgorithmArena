@@ -128,17 +128,18 @@ public class ArraySample extends BigODataStructures {
     }
 
     // --- TEST RUNNER ---
+    // --- TEST RUNNER ---
     public static void main(String[] args) {
         ArraySample tool = new ArraySample();
 
         // 1. Verify the Contract
-        System.out.println("Structure: " + tool.getDataStructureName());
-        System.out.println("Access Complexity: " + tool.getAvgAccess());
+        System.out.println(tool.bigOContract());
+        System.out.println();
 
         // 2. Test the Logic
         int[] data = {10, 20, 30, 40};
 
-        System.out.println("\n--- ACCESS & SEARCH ---");
+        System.out.println("--- ACCESS & SEARCH ---");
         System.out.println("Access Index 2: " + tool.access(data, 2));
         System.out.println("Search for 20: " + tool.search(data, 20));
 
@@ -150,4 +151,5 @@ public class ArraySample extends BigODataStructures {
         data = tool.deleteAtIndex(data, 0); // Delete 10
         System.out.println(Arrays.toString(data));
     }
+
 }

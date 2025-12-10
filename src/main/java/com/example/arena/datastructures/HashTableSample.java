@@ -112,6 +112,9 @@ public class HashTableSample extends BigODataStructures {
     public static void main(String[] args) {
         HashTableSample legacy = new HashTableSample();
 
+        System.out.println(legacy.bigOContract());
+        System.out.println();
+
         legacy.insertion();
         legacy.access();
         legacy.search();

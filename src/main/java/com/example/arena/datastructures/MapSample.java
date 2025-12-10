@@ -123,6 +123,9 @@ public class MapSample extends BigODataStructures {
     public static void main(String[] args) {
         MapSample sample = new MapSample();
 
+        System.out.println(sample.bigOContract());
+        System.out.println();
+
         System.out.println("Structure: " + sample.getDataStructureName());
 
         // 1. Insert

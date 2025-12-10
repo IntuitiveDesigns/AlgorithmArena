@@ -197,6 +197,9 @@ public class BinaryTreeSearchSample extends BigODataStructures {
 
         bst.access(); // Iterative Traversal: 20 30 40 50 70
 
+        System.out.println(bst.bigOContract());
+        System.out.println();
+
         System.out.println("Search 40: " + bst.search(40)); // true
         System.out.println("Search 99: " + bst.search(99)); // false
     }
