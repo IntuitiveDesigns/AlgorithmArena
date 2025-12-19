@@ -1,90 +1,69 @@
 package com.example.arena.kafka.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Properties;
 
-/**
- * Enterprise Config Loader.
- * Reads from 'pipeline.properties' on the classpath.
- * Fails fast if required properties are missing.
- */
 public class PipelineConfig {
 
-    private static final PipelineConfig INSTANCE = new PipelineConfig();
-    private final Properties props = new Properties();
+    private static final Logger log = LoggerFactory.getLogger(PipelineConfig.class);
+    private static PipelineConfig INSTANCE;
+    private final Properties properties;
 
-    private PipelineConfig() {
-        try (InputStream input = getClass().getClassLoader().getResourceAsStream("pipeline.properties")) {
-            if (input == null) {
-                System.err.println("Sorry, unable to find pipeline.properties");
-                return;
-            }
-            props.load(input);
-        } catch (IOException ex) {
-            ex.printStackTrace();
-        }
+    private PipelineConfig(String configPath) {
+        this.properties = new Properties();
+        loadProperties(configPath);
     }
 
-    public static PipelineConfig get() {
+    public static synchronized PipelineConfig get() {
+        if (INSTANCE == null) {
+            String path = System.getProperty("pipeline.config", "src/main/resources/pipeline.properties");
+            INSTANCE = new PipelineConfig(path);
+        }
         return INSTANCE;
     }
 
-    private static Properties loadProducerProps(PipelineConfig config) {
-        Properties props = new Properties();
-        props.put("bootstrap.servers", config.getProperty("kafka.broker", "localhost:9092"));
-        props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
-        props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+    private void loadProperties(String path) {
+        // Try file system first
+        try (InputStream input = new FileInputStream(path)) {
+            properties.load(input);
+            return;
+        } catch (IOException e) {
+            // Ignore, try classpath
+        }
 
-        // --- Throughput-oriented defaults (overridable in pipeline.properties) ---
-        props.put("acks", config.getProperty("kafka.producer.acks", "1"));                // "all" for safety, "1" for speed
-        props.put("compression.type", config.getProperty("kafka.producer.compression", "lz4"));
-        props.put("batch.size", config.getProperty("kafka.producer.batch.size", "131072")); // 128KB
-        props.put("linger.ms", config.getProperty("kafka.producer.linger.ms", "5"));        // small delay to fill batches
-        props.put("buffer.memory", config.getProperty("kafka.producer.buffer.memory", "67108864")); // 64MB
-        props.put("max.in.flight.requests.per.connection",
-                config.getProperty("kafka.producer.max.in.flight", "5"));
-        props.put("enable.idempotence",
-                config.getProperty("kafka.producer.idempotence", "false"));
-
-        return props;
+        // Try classpath
+        try (InputStream input = getClass().getClassLoader().getResourceAsStream("pipeline.properties")) {
+            if (input == null) {
+                log.warn("⚠️ No pipeline.properties found. Using empty defaults.");
+                return;
+            }
+            properties.load(input);
+        } catch (IOException ex) {
+            log.error("Failed to load config", ex);
+        }
     }
-
-    private static Properties loadConsumerProps(PipelineConfig config) {
-        Properties props = new Properties();
-        props.put("bootstrap.servers", config.getProperty("kafka.broker", "localhost:9092"));
-        props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
-        props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
-        props.put("group.id", config.getProperty("kafka.group.id", "arena-consumer-group"));
-        props.put("auto.offset.reset", config.getProperty("kafka.auto.offset.reset", "earliest"));
-
-        // --- High-throughput consumption ---
-        props.put("fetch.min.bytes", config.getProperty("kafka.consumer.fetch.min.bytes", "1048576"));          // 1MB
-        props.put("fetch.max.wait.ms", config.getProperty("kafka.consumer.fetch.max.wait.ms", "50"));
-        props.put("max.partition.fetch.bytes", config.getProperty("kafka.consumer.max.partition.fetch.bytes", "4194304")); // 4MB
-        props.put("max.poll.records", config.getProperty("kafka.consumer.max.poll.records", "500"));
-        props.put("enable.auto.commit", config.getProperty("kafka.consumer.enable.auto.commit", "true"));
-
-        return props;
-    }
-
-    // --- GENERIC GETTERS ---
 
     public String getProperty(String key) {
-        String val = props.getProperty(key);
-        if (val == null) throw new RuntimeException("Missing Configuration: " + key);
-        return val;
+        return properties.getProperty(key);
     }
 
     public String getProperty(String key, String defaultValue) {
-        return props.getProperty(key, defaultValue);
+        return properties.getProperty(key, defaultValue);
     }
 
     public int getInt(String key) {
-        return Integer.parseInt(getProperty(key));
+        String val = properties.getProperty(key);
+        if (val == null) throw new IllegalArgumentException("Missing required config: " + key);
+        return Integer.parseInt(val);
     }
 
-    public boolean getBoolean(String key) {
-        return Boolean.parseBoolean(getProperty(key));
+    // --- THE MISSING METHOD ---
+    public Properties getProperties() {
+        return this.properties;
     }
 }

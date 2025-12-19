@@ -1,7 +1,7 @@
 package com.example.arena.kafka.config;
 
+import com.example.arena.kafka.bench.SyntheticSource;
 import com.example.arena.kafka.cache.LocalCacheStrategy;
-import com.example.arena.kafka.cache.RedisCacheStrategy;
 import com.example.arena.kafka.core.CacheStrategy;
 import com.example.arena.kafka.core.OutputSink;
 import com.example.arena.kafka.core.PipelinePayload;
@@ -9,24 +9,31 @@ import com.example.arena.kafka.core.SourceConnector;
 import com.example.arena.kafka.core.Transformer;
 import com.example.arena.kafka.ingestion.KafkaSourceConnector;
 import com.example.arena.kafka.ingestion.RestSourceConnector;
-import com.example.arena.kafka.output.KafkaAvroSink;
-import com.example.arena.kafka.output.PostgresSink;
+import com.example.arena.kafka.metrics.MetricsRuntime;
 import com.example.arena.kafka.output.KafkaSink;
-import org.apache.avro.Schema;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Optional;
 import java.util.Properties;
 
 /**
- * Central wiring class for Sources, Sinks, Transformers, and CacheStrategies.
+ * PIPELINE FACTORY (Enterprise Edition)
  *
- * This is the main “extension point” for adding new connector types.
- * Open-source users can:
- *  - Implement SourceConnector / OutputSink / CacheStrategy
- *  - Add a new case in the switch for source.type / sink.type / cache.type
- *  - Configure via pipeline.properties
+ * Goals:
+ * - Return real sink instances (KafkaSink) so they can be flushed/closed cleanly.
+ * - Allow MetricsRuntime injection without requiring global statics.
+ * - Make DLQ configurable (Kafka topic, log, devnull).
+ *
+ * Backward compatibility:
+ * - Existing code can still call createSink(config) / createDlq(config).
+ * - New code should call createSink(config, metrics) / createDlq(config, metrics).
  */
-public class PipelineFactory {
+public final class PipelineFactory {
+
+    private static final Logger log = LoggerFactory.getLogger(PipelineFactory.class);
+
+    private PipelineFactory() {}
 
     // ------------------------------------------------------------------------
     // SOURCE
@@ -39,68 +46,81 @@ public class PipelineFactory {
 
             case "KAFKA" -> {
                 String topic = config.getProperty("source.topic", "arena-default");
-                Properties props = loadConsumerProps(config);
+                Properties props = new Properties();
+                // NOTE: You likely want to map consumer props here later (group.id, auto.offset.reset, etc.)
                 yield new KafkaSourceConnector(topic, props);
             }
 
-            case "SYNTHETIC" -> new com.example.arena.kafka.bench.SyntheticSource();
+            case "SYNTHETIC" -> {
+                int payloadSize = Integer.parseInt(config.getProperty("source.synthetic.payload.size", "1024"));
+                boolean highEntropy = Boolean.parseBoolean(config.getProperty("source.synthetic.high.entropy", "false"));
+                yield new SyntheticSource(payloadSize, highEntropy);
+            }
 
-
-            default -> throw new IllegalArgumentException("Unknown Source: " + type);
+            default -> throw new IllegalArgumentException("Unknown source.type: " + type);
         };
     }
 
     // ------------------------------------------------------------------------
-    // SINK
+    // SINK (PRIMARY)
     // ------------------------------------------------------------------------
-    public static OutputSink<String> createSink(PipelineConfig config) throws Exception {
+
+    /** Backward-compatible: metrics disabled for sink. */
+    public static OutputSink<String> createSink(PipelineConfig config) {
+        return createSink(config, null);
+    }
+
+    /** Preferred: allow sink to register Micrometer metrics via MetricsRuntime. */
+    public static OutputSink<String> createSink(PipelineConfig config, MetricsRuntime metrics) {
         String type = config.getProperty("sink.type", "KAFKA").toUpperCase();
 
         return switch (type) {
             case "KAFKA" -> {
-                String topic = config.getProperty("sink.topic", "arena-default");
-                Properties props = loadProducerProps(config);
-
-                // default false = async for performance; true = sync for safety
-                boolean syncSend = Boolean.parseBoolean(
-                        config.getProperty("kafka.sink.sync", "false")
-                );
-
-                yield new KafkaSink(topic, props, syncSend);
+                String topic = config.getProperty("sink.topic", "arena-bench-test");
+                yield KafkaSink.fromConfig(config, topic, metrics);
             }
 
-            case "CONSOLE" -> payload -> {
-                // no-op or optional println for debugging / pure CPU benchmarks
-                // System.out.println(">> " + payload.data());
-            };
+            case "DEVNULL" -> payload -> { /* intentionally no-op */ };
 
-            case "KAFKA_AVRO" -> {
-                String topic = config.getProperty("sink.topic", "arena-customer");
-                Properties props = loadProducerProps(config);
+            case "LOG" -> payload ->
+                    log.info("[SINK-LOG] id={} dataLen={}", payload.id(),
+                            payload.data() == null ? 0 : payload.data().length());
 
-                // Schema Registry config (Confluent)
-                props.put("schema.registry.url",
-                        config.getProperty("schema.registry.url", "http://localhost:8081"));
+            default -> throw new UnsupportedOperationException("Sink type not implemented: " + type);
+        };
+    }
 
-                Schema schema = KafkaAvroSink.loadSchemaFromResource(
-                        config.getProperty("avro.schema.resource", "CustomerEvent.avsc")
-                );
+    // ------------------------------------------------------------------------
+    // DLQ
+    // ------------------------------------------------------------------------
 
-                yield new KafkaAvroSink(topic, props, schema);
+    /** Backward-compatible: metrics disabled for DLQ. */
+    public static OutputSink<String> createDlq(PipelineConfig config) {
+        return createDlq(config, null);
+    }
+
+    /**
+     * Configurable DLQ:
+     * - dlq.type=KAFKA  (recommended) with dlq.topic=...
+     * - dlq.type=LOG    (default fallback)
+     * - dlq.type=DEVNULL
+     */
+    public static OutputSink<String> createDlq(PipelineConfig config, MetricsRuntime metrics) {
+        String type = config.getProperty("dlq.type", "LOG").toUpperCase();
+
+        return switch (type) {
+            case "KAFKA" -> {
+                String dlqTopic = config.getProperty("dlq.topic", "arena-dlq");
+                yield KafkaSink.fromConfig(config, dlqTopic, metrics);
             }
 
-            case "POSTGRES" -> {
-                String url  = config.getProperty("db.url", "jdbc:postgresql://localhost:5432/arena_db");
-                String user = config.getProperty("db.user", "arena");
-                String pass = config.getProperty("db.password", "arena");
-                int batch   = Integer.parseInt(config.getProperty("db.batch.size", "500"));
-                yield new PostgresSink(url, user, pass, batch);
-            }
+            case "DEVNULL" -> payload -> { /* intentionally no-op */ };
 
-            case "DEVNULL" -> new com.example.arena.kafka.bench.DevNullSink<>();
+            case "LOG" -> payload ->
+                    log.warn("⚠️ [DLQ] Dropped Event id={} dataLen={}", payload.id(),
+                            payload.data() == null ? 0 : payload.data().length());
 
-
-            default -> throw new IllegalArgumentException("Unknown Sink: " + type);
+            default -> throw new UnsupportedOperationException("DLQ type not implemented: " + type);
         };
     }
 
@@ -108,9 +128,15 @@ public class PipelineFactory {
     // TRANSFORMER
     // ------------------------------------------------------------------------
     public static Transformer<String, String> createTransformer(PipelineConfig config) {
-        // Simple default business logic.
-        // KafkaApp can still override this with a custom transformer.
-        return input -> input.withData(input.data().toUpperCase());
+        String type = config.getProperty("transform.type", "NOOP").toUpperCase();
+
+        return switch (type) {
+            case "NOOP" -> input -> input;
+
+            case "UPPER" -> input -> input.withData(input.data() == null ? null : input.data().toUpperCase());
+
+            default -> throw new UnsupportedOperationException("Transformer type not implemented: " + type);
+        };
     }
 
     // ------------------------------------------------------------------------
@@ -119,95 +145,15 @@ public class PipelineFactory {
     public static CacheStrategy<String> createCache(PipelineConfig config) {
         String type = config.getProperty("cache.type", "LOCAL").toUpperCase();
 
-        return switch (type) {
-            case "LOCAL" -> new LocalCacheStrategy<>();
-
-            case "REDIS" -> new RedisCacheStrategy<>();
-
-            default -> new CacheStrategy<>() {
-                @Override
-                public void put(String key, PipelinePayload<String> value) throws Exception {
-                    // no-op
-                }
-
-                @Override
-                public Optional<PipelinePayload<String>> get(String key) throws Exception {
-                    return Optional.empty();
-                }
-
-                @Override
-                public void remove(String key) throws Exception {
-                    // no-op
-                }
+        if ("NOOP".equals(type)) {
+            return new CacheStrategy<>() {
+                @Override public void put(String key, PipelinePayload<String> value) {}
+                @Override public Optional<PipelinePayload<String>> get(String key) { return Optional.empty(); }
+                @Override public void remove(String key) {}
             };
-        };
-    }
+        }
 
-    // ------------------------------------------------------------------------
-    // HELPER METHODS: PRODUCER / CONSUMER PROPS
-    // ------------------------------------------------------------------------
-
-    /**
-     * Build tuned Kafka Producer properties from pipeline.properties
-     * with reasonable throughput-oriented defaults.
-     */
-    static Properties loadProducerProps(PipelineConfig config) {
-        Properties props = new Properties();
-        props.put("bootstrap.servers",
-                config.getProperty("kafka.broker", "localhost:9092"));
-        props.put("key.serializer",
-                "org.apache.kafka.common.serialization.StringSerializer");
-        props.put("value.serializer",
-                "org.apache.kafka.common.serialization.StringSerializer");
-
-        // --- Throughput-oriented defaults (overridable in pipeline.properties) ---
-        props.put("acks",
-                config.getProperty("kafka.producer.acks", "1")); // "all" for safety, "1" for speed
-        props.put("compression.type",
-                config.getProperty("kafka.producer.compression", "lz4"));
-        props.put("batch.size",
-                config.getProperty("kafka.producer.batch.size", "131072")); // 128KB
-        props.put("linger.ms",
-                config.getProperty("kafka.producer.linger.ms", "5"));
-        props.put("buffer.memory",
-                config.getProperty("kafka.producer.buffer.memory", "67108864")); // 64MB
-        props.put("max.in.flight.requests.per.connection",
-                config.getProperty("kafka.producer.max.in.flight", "5"));
-        props.put("enable.idempotence",
-                config.getProperty("kafka.producer.idempotence", "false"));
-
-        return props;
-    }
-
-    /**
-     * Build tuned Kafka Consumer properties from pipeline.properties.
-     */
-    static Properties loadConsumerProps(PipelineConfig config) {
-        Properties props = new Properties();
-        props.put("bootstrap.servers",
-                config.getProperty("kafka.broker", "localhost:9092"));
-        props.put("key.deserializer",
-                "org.apache.kafka.common.serialization.StringDeserializer");
-        props.put("value.deserializer",
-                "org.apache.kafka.common.serialization.StringDeserializer");
-
-        props.put("group.id",
-                config.getProperty("kafka.group.id", "arena-consumer-group"));
-        props.put("auto.offset.reset",
-                config.getProperty("kafka.auto.offset.reset", "earliest"));
-
-        // --- High-throughput defaults ---
-        props.put("fetch.min.bytes",
-                config.getProperty("kafka.consumer.fetch.min.bytes", "1048576")); // 1MB
-        props.put("fetch.max.wait.ms",
-                config.getProperty("kafka.consumer.fetch.max.wait.ms", "50"));
-        props.put("max.partition.fetch.bytes",
-                config.getProperty("kafka.consumer.max.partition.fetch.bytes", "4194304")); // 4MB
-        props.put("max.poll.records",
-                config.getProperty("kafka.consumer.max.poll.records", "500"));
-        props.put("enable.auto.commit",
-                config.getProperty("kafka.consumer.enable.auto.commit", "true"));
-
-        return props;
+        // Default = LOCAL
+        return new LocalCacheStrategy<>();
     }
 }

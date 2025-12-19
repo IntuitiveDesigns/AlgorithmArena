@@ -1,32 +1,34 @@
 global:
-  scrape_interval: 1s # Scrape frequently for high-speed updates
+  scrape_interval: 1s
 
 scrape_configs:
-  - job_name: 'algorithm-arena-pipeline'
-    metrics_path: '/metrics'
+  # ==========================================================
+  # Arena pipeline (KafkaApp running on the HOST)
+  # ==========================================================
+  - job_name: "algorithm-arena-pipeline"
+    metrics_path: "/metrics"
     static_configs:
-      # 'host.docker.internal' allows Docker to see your Windows/Mac host
-      - targets: ['host.docker.internal:8080']
+      - targets: ["host.docker.internal:8080"]
+        labels:
+          app: "arena"
+          component: "pipeline"
 
-      # 1) Your benchmark app
-      - job_name: 'arena-sink-bench'
-        metrics_path: /metrics
-        static_configs:
-          - targets: [ 'localhost:8080' ]
-            labels:
-              app: 'arena'
-              component: 'sink-benchmark'
+  # ==========================================================
+  # Kafka exporter (runs in Docker)
+  # ==========================================================
+  - job_name: "kafka"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
+        labels:
+          app: "kafka"
 
-      # 2) Kafka broker(s) via kafka_exporter or JMX exporter (optional)
-      - job_name: 'kafka'
-        static_configs:
-          - targets: [ 'localhost:9308' ]   # adjust for your exporter
-            labels:
-              app: 'kafka'
-
-      # 3) Postgres via postgres_exporter (optional)
-      - job_name: 'postgres'
-        static_configs:
-          - targets: [ 'localhost:9187' ]   # adjust for your exporter
-            labels:
-              app: 'postgres'
+  # ==========================================================
+  # Postgres exporter (runs in Docker)
+  # ==========================================================
+  - job_name: "postgres"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+        labels:
+          app: "postgres"

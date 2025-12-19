@@ -3,11 +3,8 @@ package com.example.arena.kafka;
 import com.example.arena.kafka.bench.SyntheticSource;
 import com.example.arena.kafka.config.PipelineConfig;
 import com.example.arena.kafka.config.PipelineFactory;
-import com.example.arena.kafka.core.CacheStrategy;
 import com.example.arena.kafka.core.OutputSink;
-import com.example.arena.kafka.core.PipelineOrchestrator;
 import com.example.arena.kafka.core.SourceConnector;
-import com.example.arena.kafka.core.Transformer;
 import com.sun.net.httpserver.HttpServer;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Timer;
@@ -18,13 +15,16 @@ import org.slf4j.LoggerFactory;
 
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class SinkBenchmarkApp {
 
     private static final Logger log = LoggerFactory.getLogger(SinkBenchmarkApp.class);
 
     public static void main(String[] args) {
-        log.info("=== Booting Sink Benchmark (Synthetic Source -> Real Postgres) ===");
+        log.info("=== Booting Sink Benchmark (Manual Dispatch Mode) ===");
 
         // --------------------------------------------------------------------
         // 1. METRICS REGISTRY + /metrics HTTP ENDPOINT
@@ -38,10 +38,7 @@ public class SinkBenchmarkApp {
                     String response = registry.scrape();
                     byte[] bytes = response.getBytes();
 
-                    httpExchange.getResponseHeaders().set(
-                            "Content-Type",
-                            "text/plain; version=0.0.4; charset=utf-8"
-                    );
+                    httpExchange.getResponseHeaders().set("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
                     httpExchange.sendResponseHeaders(200, bytes.length);
 
                     try (OutputStream os = httpExchange.getResponseBody()) {
@@ -62,20 +59,20 @@ public class SinkBenchmarkApp {
         // 2. METRICS: COUNTERS + TIMERS
         // --------------------------------------------------------------------
         Counter persistedCounter = Counter.builder("arena_sink_records_total")
-                .description("Total number of records successfully written to Postgres")
+                .description("Total number of records successfully written to Postgres/Kafka")
                 .tag("stage", "persisted")
                 .register(registry);
 
         Counter failedCounter = Counter.builder("arena_sink_records_total")
-                .description("Total number of records that failed to be written to Postgres")
+                .description("Total number of records that failed to be written")
                 .tag("stage", "failed")
                 .register(registry);
 
         Timer sinkLatency = Timer.builder("arena_sink_record_latency_seconds")
-                .description("End-to-end record latency from sink entry to Postgres commit")
+                .description("End-to-end record latency")
                 .publishPercentileHistogram()
                 .publishPercentiles(0.5, 0.9, 0.99)
-                .tag("sink", "postgres")
+                .tag("sink", "target")
                 .register(registry);
 
         // --------------------------------------------------------------------
@@ -83,16 +80,25 @@ public class SinkBenchmarkApp {
         // --------------------------------------------------------------------
         PipelineConfig config = PipelineConfig.get();
 
-        // Synthetic Source (generates benchmark data)
-        SourceConnector<String> source = new SyntheticSource();
+        // --- THE FIX: Read App Batch Size ---
+        // Reads "pipeline.app.batch.size=4000" to match the 4MB Kafka buffer
+        int appBatchSize = Integer.parseInt(
+                config.getProperty("pipeline.app.batch.size", "4000")
+        );
+        log.info("🚀 Configured App Batch Size: {}", appBatchSize);
 
-        // Real Sink (Postgres) wrapped with metrics
+        // Synthetic Source (High Entropy = true for strict test)
+        // 1024 bytes per message, High Entropy (Random Data)
+        SourceConnector<String> source = new SyntheticSource(1024);
+
+        // Real Sink (Kafka/Postgres) wrapped with metrics
         OutputSink<String> monitoredSink;
         OutputSink<String> actualSink;
 
         try {
             actualSink = PipelineFactory.createSink(config);
 
+            // Wrap the real sink with latency timers
             monitoredSink = payload -> {
                 Timer.Sample sample = Timer.start(registry);
                 try {
@@ -107,48 +113,58 @@ public class SinkBenchmarkApp {
             };
 
         } catch (Exception e) {
-            log.error("🚨 Fatal Error: Failed to initialize pipeline components.", e);
+            log.error("🚨 Fatal Error: Failed to initialize sink.", e);
             System.exit(1);
             return;
         }
 
-        // DLQ just logs the payload for now
-        OutputSink<String> dlq = payload -> log.warn("⚠️ [DLQ] {}", payload);
-
-        // Cache strategy (could be in-memory, no-op, etc. depending on config)
-        CacheStrategy<String> cache = PipelineFactory.createCache(config);
-
-        // No-op business logic: identity transform (we’re benchmarking I/O, not CPU)
-        Transformer<String, String> businessLogic = input -> input;
-
         // --------------------------------------------------------------------
-        // 4. ORCHESTRATOR
+        // 4. MANUAL DISPATCH LOOP (Bypassing Orchestrator for Raw Speed)
         // --------------------------------------------------------------------
-        int parallelism = config.getInt("pipeline.parallelism");
+        // We use a manual loop here to strictly control the batch size passed
+        // to source.fetchBatch(). The standard PipelineOrchestrator might default
+        // to smaller batches, which kills throughput in "Strict Mode".
 
-        PipelineOrchestrator<String, String> pipeline =
-                new PipelineOrchestrator<>(
-                        source,
-                        monitoredSink,
-                        dlq,
-                        businessLogic,
-                        cache,
-                        parallelism
-                );
+        AtomicBoolean running = new AtomicBoolean(true);
 
         Runtime.getRuntime().addShutdownHook(
-                new Thread(pipeline::stop, "sink-bench-shutdown")
+                new Thread(() -> {
+                    log.info("🛑 Shutting down benchmark...");
+                    running.set(false);
+                }, "sink-bench-shutdown")
         );
 
-        // --------------------------------------------------------------------
-        // 5. RUN (BLOCK MAIN THREAD)
-        // --------------------------------------------------------------------
-        pipeline.start();
-        try {
-            Thread.currentThread().join();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            pipeline.stop();
+        source.connect();
+        // actualSink.connect(); // Uncomment if your Sink interface has connect()
+
+        log.info("🏎️  Starting High-Performance Dispatch Loop...");
+
+        // Use Virtual Threads for dispatching
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+
+            while (running.get()) {
+                // FETCH: Grab a huge chunk (e.g. 4000 items) to fill the Kafka Buffer
+                var batch = source.fetchBatch(appBatchSize);
+
+                if (batch == null || batch.isEmpty()) {
+                    continue; // Should not happen with Ring Buffer
+                }
+
+                // DISPATCH: Submit the batch to be written
+                executor.submit(() -> {
+                    for (var record : batch) {
+                        try {
+                            monitoredSink.write(record);
+                        } catch (Exception e) {
+                            // Logged by monitoredSink wrapper
+                        }
+                    }
+                });
+            }
         }
+
+        source.disconnect();
+        // actualSink.disconnect(); // Uncomment if needed
+        log.info("Benchmark Finished.");
     }
 }

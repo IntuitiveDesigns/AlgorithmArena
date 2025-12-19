@@ -17,6 +17,10 @@ java {
     }
 }
 
+springBoot {
+    mainClass = 'com.example.arena.kafka.KafkaApp'
+}
+
 configurations {
     compileOnly {
         extendsFrom annotationProcessor
@@ -57,6 +61,16 @@ dependencies {
 
     // PostgreSQL support
     implementation 'org.postgresql:postgresql:42.7.2'
+
+    // DataDog support
+    implementation 'io.micrometer:micrometer-registry-datadog'
+
+    // Redis Client
+    implementation 'redis.clients:jedis:5.1.0'
+
+    // SPI Helper (Google Auto Service
+    compileOnly 'com.google.auto.service:auto-service:1.1.1'
+    annotationProcessor 'com.google.auto.service:auto-service:1.1.1'
 }
 
 tasks.named('test') {

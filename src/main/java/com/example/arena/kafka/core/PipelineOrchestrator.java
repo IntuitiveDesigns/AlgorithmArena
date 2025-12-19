@@ -3,22 +3,18 @@ package com.example.arena.kafka.core;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
- * Core orchestration engine.
- *
- * - Pulls events from a SourceConnector
- * - Dispatches them to virtual threads (via an ExecutorService)
- * - Applies the Transformer
- * - Writes to the primary OutputSink, or DLQ on failure
- *
- * @param <I> Input payload type
- * @param <O> Output payload type
+ * ENTERPRISE ORCHESTRATOR (v4.1 - Compilation Fix)
+ * - Fixed Type Mismatch in CacheStrategy.
+ * - Stores full PipelinePayload in Cache.
  */
 public class PipelineOrchestrator<I, O> {
 
@@ -29,142 +25,178 @@ public class PipelineOrchestrator<I, O> {
     private final OutputSink<I> dlqSink;
     private final Transformer<I, O> transformer;
     private final CacheStrategy<I> cache;
-    private final int maxInFlight;
+    private final LongAdder meter;
+
+    private final int parallelism;
+    private final int batchSize;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private ExecutorService executor;
     private Thread dispatcherThread;
-    private Semaphore inFlightLimiter;
+    private Semaphore concurrencyLimiter;
+
+    private final java.util.concurrent.atomic.AtomicInteger inFlightBatches = new java.util.concurrent.atomic.AtomicInteger(0);
+    private final Object drainMonitor = new Object();
 
     public PipelineOrchestrator(SourceConnector<I> source,
                                 OutputSink<O> primarySink,
                                 OutputSink<I> dlqSink,
                                 Transformer<I, O> transformer,
                                 CacheStrategy<I> cache,
-                                int maxInFlight) {
+                                LongAdder meter,
+                                int parallelism,
+                                int batchSize) {
 
         this.source = Objects.requireNonNull(source, "source");
         this.primarySink = Objects.requireNonNull(primarySink, "primarySink");
         this.dlqSink = Objects.requireNonNull(dlqSink, "dlqSink");
         this.transformer = Objects.requireNonNull(transformer, "transformer");
         this.cache = Objects.requireNonNull(cache, "cache");
+        this.meter = meter;
 
-        if (maxInFlight <= 0) {
-            throw new IllegalArgumentException("maxInFlight must be > 0");
-        }
-        this.maxInFlight = maxInFlight;
+        if (parallelism <= 0) throw new IllegalArgumentException("Parallelism must be > 0");
+        if (batchSize <= 0) throw new IllegalArgumentException("BatchSize must be > 0");
+
+        this.parallelism = parallelism;
+        this.batchSize = batchSize;
     }
 
-    /**
-     * Starts the orchestrator:
-     * - connects the source
-     * - spins up the virtual-thread executor
-     * - launches a dispatcher loop on a dedicated thread
-     */
     public void start() {
-        if (!running.compareAndSet(false, true)) {
-            log.warn("PipelineOrchestrator.start() called but pipeline is already running");
-            return;
-        }
+        if (!running.compareAndSet(false, true)) return;
 
-        log.info("Connecting SourceConnector...");
         source.connect();
-
-        log.info("Initializing CacheStrategy...");
-        this.inFlightLimiter = new Semaphore(maxInFlight);
-
-        // Java 21 virtual threads
+        this.concurrencyLimiter = new Semaphore(parallelism);
         this.executor = Executors.newVirtualThreadPerTaskExecutor();
-
-        log.info("Starting Parallel Pipeline (Virtual Threads), maxInFlight={}", maxInFlight);
 
         this.dispatcherThread = new Thread(this::runDispatcherLoop, "pipeline-dispatcher");
         this.dispatcherThread.setDaemon(true);
         this.dispatcherThread.start();
+
+        log.info("🚀 Pipeline Started: Parallelism={} | BatchSize={}", parallelism, batchSize);
     }
 
-    /**
-     * Requests a graceful shutdown:
-     * - stops the dispatcher loop
-     * - waits briefly for it to finish
-     * - shuts down the executor
-     * - disconnects the source
-     */
     public void stop() {
-        if (!running.compareAndSet(true, false)) {
-            log.warn("PipelineOrchestrator.stop() called but pipeline is not running");
-            return;
-        }
+        if (!running.compareAndSet(true, false)) return;
 
-        log.info("Stopping Pipeline...");
+        log.info("🛑 Stop requested. Draining in-flight batches...");
 
-        try {
-            if (dispatcherThread != null) {
-                dispatcherThread.join(5_000L);
+        // Stop dispatcher loop quickly
+        if (dispatcherThread != null) dispatcherThread.interrupt();
+
+        // Wait for in-flight batches (bounded)
+        long deadline = System.currentTimeMillis() + 10_000L;
+        synchronized (drainMonitor) {
+            while (inFlightBatches.get() > 0 && System.currentTimeMillis() < deadline) {
+                try { drainMonitor.wait(250L); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.warn("Interrupted while waiting for dispatcher to stop", e);
         }
 
+        // Now shutdown executor cleanly
         if (executor != null) {
             executor.shutdown();
+            try { executor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS); }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); }
         }
 
-        source.disconnect();
-        log.info("Pipeline stopped.");
+        // Close in correct order (best effort)
+        safeClose(primarySink, "primarySink");
+        safeClose(dlqSink, "dlqSink");
+        safeDisconnectSource();
+
+        log.info("✅ Pipeline stopped. Remaining in-flight={}", inFlightBatches.get());
     }
 
-    // -------------------------------------------------------------------------
-    // INTERNAL DISPATCH LOOP
-    // -------------------------------------------------------------------------
+    private void safeClose(Object sink, String name) {
+        try {
+            if (sink instanceof AutoCloseable c) c.close();
+        } catch (Exception e) {
+            log.warn("Failed to close {}", name, e);
+        }
+    }
+
+    private void safeDisconnectSource() {
+        try { source.disconnect(); }
+        catch (Exception e) { log.warn("Failed to disconnect source", e); }
+    }
+
 
     private void runDispatcherLoop() {
+        int idleMs = 1;
+
         try {
             while (running.get()) {
-                PipelinePayload<I> inputPayload = source.fetch();
 
-                if (inputPayload == null) {
-                    // Back off very briefly if there is no data
-                    try {
-                        Thread.sleep(5L);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
+                // Backpressure FIRST: do not fetch if we cannot dispatch
+                concurrencyLimiter.acquire();
+
+                List<PipelinePayload<I>> batch;
+                try {
+                    batch = source.fetchBatch(batchSize);
+                } catch (Exception e) {
+                    concurrencyLimiter.release();
+                    throw e;
+                }
+
+                if (batch == null || batch.isEmpty()) {
+                    concurrencyLimiter.release();
+
+                    // adaptive backoff (caps at 50ms)
+                    try { Thread.sleep(idleMs); } catch (InterruptedException ie) { break; }
+                    idleMs = Math.min(idleMs * 2, 50);
                     continue;
                 }
 
-                // Acquire a permit before dispatching to avoid unbounded in-flight tasks.
-                inFlightLimiter.acquireUninterruptibly();
+                idleMs = 1;
+
+                inFlightBatches.incrementAndGet();
 
                 executor.submit(() -> {
                     try {
-                        processEvent(inputPayload);
+                        processBatch(batch);
                     } finally {
-                        // Always release, even on failure
-                        inFlightLimiter.release();
+                        concurrencyLimiter.release();
+                        if (meter != null) meter.add(batch.size());
+
+                        int remaining = inFlightBatches.decrementAndGet();
+                        if (remaining == 0) {
+                            synchronized (drainMonitor) { drainMonitor.notifyAll(); }
+                        }
                     }
                 });
             }
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            log.info("Dispatcher stopping...");
         } catch (Exception e) {
-            log.error("Fatal error in dispatcher loop; stopping pipeline", e);
+            log.error("Dispatcher crashed", e);
             running.set(false);
         }
     }
 
-    private void processEvent(PipelinePayload<I> inputPayload) {
-        try {
-            PipelinePayload<O> resultPayload = transformer.transform(inputPayload);
-            primarySink.write(resultPayload);
-        } catch (Exception e) {
-            // send to DLQ, but never let an exception kill the orchestrator
-            log.error("❌ Failed ID: {}", inputPayload.id(), e);
+    private void processBatch(List<PipelinePayload<I>> batch) {
+        var sink = this.primarySink;
+        var trans = this.transformer;
+        var cacheStrategy = this.cache;
+
+        for (PipelinePayload<I> payload : batch) {
             try {
-                dlqSink.write(inputPayload);
-            } catch (Exception dlqError) {
-                log.error("💀 DLQ write also failed for ID: {}", inputPayload.id(), dlqError);
+                // FIXED: Pass the WHOLE payload object, not just .data()
+                cacheStrategy.put(payload.id(), payload);
+
+                sink.write(trans.transform(payload));
+
+            } catch (Exception e) {
+                handleError(payload, e);
             }
+        }
+    }
+
+    private void handleError(PipelinePayload<I> payload, Exception e) {
+        log.warn("Record failed. id={}", payload.id(), e);
+        try {
+            dlqSink.write(payload);
+        } catch (Exception dlqError) {
+            log.error("DOUBLE FAULT: Failed to write to DLQ. id={}", payload.id(), dlqError);
         }
     }
 }

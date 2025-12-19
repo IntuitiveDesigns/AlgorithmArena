@@ -28,7 +28,7 @@ import java.util.Properties;
  *
  * @param <T> The type of the event payload.
  */
-public interface OutputSink<T> {
+public interface OutputSink<T> extends AutoCloseable {
 
     /**
      * Persist or send the payload to the target system.
@@ -45,4 +45,8 @@ public interface OutputSink<T> {
      */
     void write(PipelinePayload<T> payload) throws Exception;
 
+    @Override
+    default void close() throws Exception {
+        // no-op by default
+    }
 }
