@@ -1,0 +1,2 @@
+com.example.arena.kafka.plugins.NoopTransformerPlugin
+com.example.arena.kafka.plugins.UppercaseTransformerPlugin

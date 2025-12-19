@@ -1,0 +1,2 @@
+com.example.arena.kafka.plugins.NoopCachePlugin
+com.example.arena.kafka.plugins.LocalCachePlugin

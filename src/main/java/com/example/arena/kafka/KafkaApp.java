@@ -24,6 +24,7 @@ public class KafkaApp {
         log.info("=== Booting Enterprise Pipeline Agent (v3.4 - 10s Acked EPS + InFlight) ===");
 
         PipelineConfig config = PipelineConfig.get();
+        PipelineFactory.logAvailablePlugins();
         MetricsRuntime metrics = MetricsFactory.init(config);
 
         int parallelism = Integer.parseInt(config.getProperty("pipeline.parallelism", "50"));
@@ -37,11 +38,11 @@ public class KafkaApp {
         OutputSink<String> dlq  = null;
 
         try {
-            SourceConnector<String> source = PipelineFactory.createSource(config);
+            SourceConnector<String> source = PipelineFactory.createSource(config, metrics);
             sink = PipelineFactory.createSink(config, metrics);
             dlq  = PipelineFactory.createDlq(config, metrics);
-            Transformer<String, String> transformer = PipelineFactory.createTransformer(config);
-            CacheStrategy<String> cache = PipelineFactory.createCache(config);
+            Transformer<String, String> transformer = PipelineFactory.createTransformer(config, metrics);
+            CacheStrategy<String> cache = PipelineFactory.createCache(config, metrics);
 
             LongAdder processedCounter = new LongAdder();
 

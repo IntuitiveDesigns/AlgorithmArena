@@ -5,6 +5,8 @@ import com.example.arena.kafka.config.PipelineConfig;
 import com.example.arena.kafka.config.PipelineFactory;
 import com.example.arena.kafka.core.OutputSink;
 import com.example.arena.kafka.core.SourceConnector;
+import com.example.arena.kafka.metrics.MetricsFactory;
+import com.example.arena.kafka.metrics.MetricsRuntime;
 import com.sun.net.httpserver.HttpServer;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Timer;
@@ -96,7 +98,8 @@ public class SinkBenchmarkApp {
         OutputSink<String> actualSink;
 
         try {
-            actualSink = PipelineFactory.createSink(config);
+            MetricsRuntime metrics = MetricsFactory.init(config);
+            actualSink = PipelineFactory.createSink(config, metrics);
 
             // Wrap the real sink with latency timers
             monitoredSink = payload -> {
