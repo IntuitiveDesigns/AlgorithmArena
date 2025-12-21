@@ -1,4 +1,0 @@
-com.example.arena.kafka.plugins.KafkaSinkPlugin
-com.example.arena.kafka.plugins.DevNullSinkPlugin
-com.example.arena.kafka.plugins.DlqLogSinkPlugin
-com.example.arena.kafka.plugins.KafkaAvroSinkPlugin
