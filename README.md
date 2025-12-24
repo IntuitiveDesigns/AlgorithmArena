@@ -11,6 +11,8 @@ If you are looking for the High-Performance Kafka Source/Sink Framework, DLQ pat
 ---
 
 # Algorithm Arena ⚔️
+[![Architected by Steven Lopez](https://img.shields.io/badge/Architected%20by-Steven%20Lopez-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/steve-lopez-b9941/)
+---
 ## A Modern Java 21 Data Structures & Algorithms Benchmarking Framework
 
 > "Theory tells you O(N log N) is fast. The Arena shows you how fast."
@@ -47,4 +49,9 @@ Algorithm Arena is a blend of:
 - Algorithm benchmarking
 - Modern Java 21 exploration  
 
-GitHub: https://github.com/IntuitiveDesigns/AlgorithmArena
+## 📜 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+**Author:** Steven Lopez
+
